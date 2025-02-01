@@ -4,3 +4,7 @@
 .vscode/
 build/
 third-party/
+cubemaps/
+reference-binaries/
+scenes 2/
+scenes/

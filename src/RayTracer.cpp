@@ -79,6 +79,9 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
 #if VERBOSE
   std::cerr << "== current depth: " << depth << std::endl;
 #endif
+  if (depth < 0) {
+    return glm::dvec3(0.0, 0.0, 0.0);
+  }
 
   if (scene->intersect(r, i)) {
     // YOUR CODE HERE
@@ -93,6 +96,8 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
 
     const Material &m = i.getMaterial();
     colorC = m.shade(scene.get(), r, i);
+    t = i.getT();
+
   } else {
     // No intersection. This ray travels to infinity, so we color
     // it according to the background color, which in this (simple)
