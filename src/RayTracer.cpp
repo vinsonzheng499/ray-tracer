@@ -90,7 +90,6 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
     // This is a great place to insert code for recursive ray tracing. Instead
     // of just returning the result of shade(), add some more steps: add in the
     // contributions from reflected and refracted rays.
-    cout << "IF BRANCH" << endl;
 
     const Material &m = i.getMaterial();
     colorC = m.shade(scene.get(), r, i);
@@ -104,10 +103,8 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
       glm::dvec3 offsetHitPoint = hitPoint + N * RAY_EPSILON;
       ray reflectedRay(offsetHitPoint, R, r.getAtten(), ray::REFLECTION);
       colorC += m.kr(i) * traceRay(reflectedRay, thresh, depth - 1, t);
-      cout << colorC.x << " " << colorC.y << " " << colorC.z << " " << depth << endl;
     }
   } else {
-    cout << "ELSE BRANCH" << endl;
     // No intersection. This ray travels to infinity, so we color
     // it according to the background color, which in this (simple)
     // case is just black.
