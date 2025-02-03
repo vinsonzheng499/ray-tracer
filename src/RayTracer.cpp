@@ -79,9 +79,6 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
 #if VERBOSE
   std::cerr << "== current depth: " << depth << std::endl;
 #endif
-  if (depth < 0) {
-    return glm::dvec3(0.0, 0.0, 0.0);
-  }
 
   if (scene->intersect(r, i)) {
     // YOUR CODE HERE
@@ -93,12 +90,24 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
     // This is a great place to insert code for recursive ray tracing. Instead
     // of just returning the result of shade(), add some more steps: add in the
     // contributions from reflected and refracted rays.
+    cout << "IF BRANCH" << endl;
 
     const Material &m = i.getMaterial();
     colorC = m.shade(scene.get(), r, i);
     t = i.getT();
 
+    if (depth > 0) {
+      glm::dvec3 D = r.getDirection();
+      glm::dvec3 N = i.getN();
+      glm::dvec3 R = glm::reflect(D, N);
+      glm::dvec3 hitPoint = r.at(i);
+      glm::dvec3 offsetHitPoint = hitPoint + N * RAY_EPSILON;
+      ray reflectedRay(offsetHitPoint, R, r.getAtten(), ray::REFLECTION);
+      colorC += m.kr(i) * traceRay(reflectedRay, thresh, depth - 1, t);
+      cout << colorC.x << " " << colorC.y << " " << colorC.z << " " << depth << endl;
+    }
   } else {
+    cout << "ELSE BRANCH" << endl;
     // No intersection. This ray travels to infinity, so we color
     // it according to the background color, which in this (simple)
     // case is just black.
@@ -249,6 +258,13 @@ void RayTracer::traceImage(int w, int h) {
   //
   //       An asynchronous traceImage lets the GUI update your results
   //       while rendering.
+  int totalPixels = w * h;
+
+  for (int i = 0; i < h; ++i) {
+    for (int j = 0; j < w; ++j) {
+      tracePixel(i, j);
+    }
+  }
 }
 
 int RayTracer::aaImage() {

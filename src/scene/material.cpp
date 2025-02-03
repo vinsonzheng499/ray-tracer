@@ -45,7 +45,7 @@ glm::dvec3 Material::shade(Scene *scene, const ray &r, const isect &i) const {
 
   for ( const auto& pLight : scene->getAllLights() )
   {
-    glm::dvec3 I_l = pLight->getColor() // intensity of light source
+    glm::dvec3 I_l = pLight->getColor(); // intensity of light source
     glm::dvec3 L = pLight->getDirection(P); // Direction vector from the surface point to the light source
     double N_dot_L = max(glm::dot(N, L), 0.0); // clamped dot product
     glm::dvec3 diffuse = kd(i) * N_dot_L; // diffuse term
@@ -55,7 +55,7 @@ glm::dvec3 Material::shade(Scene *scene, const ray &r, const isect &i) const {
     double ns = shininess(i); // shininess exponent
     glm::dvec3 specular = ks(i) * pow(V_dot_R, ns); // specular term
 
-    glm::dvec3 distanceAttenuation = pLight->distanceAttenuation(P);
+    double distanceAttenuation = pLight->distanceAttenuation(P);
     glm::dvec3 shadowAttenuation = pLight->shadowAttenuation(r, P);
     I_phong += I_l * (diffuse + specular) * distanceAttenuation * shadowAttenuation;
   }
