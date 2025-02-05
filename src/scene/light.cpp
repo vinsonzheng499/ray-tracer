@@ -34,7 +34,7 @@ glm::dvec3 DirectionalLight::shadowAttenuation(const ray &r,
 
     // Move the shadow ray forward slightly past the intersection
     glm::dvec3 newOrigin = shadowRay.at(i.getT()) + RAY_EPSILON * getDirection(p);
-    ray shadowRay = ray(newOrigin, getDirection(p), attenuation, ray::SHADOW);
+    shadowRay = ray(newOrigin, getDirection(p), attenuation, ray::SHADOW);
   }
 
   return attenuation;
@@ -71,9 +71,14 @@ glm::dvec3 PointLight::shadowAttenuation(const ray &r,
   ray shadowRay = ray(p + getDirection(p) * RAY_EPSILON, getDirection(p), r.getAtten(), ray::SHADOW);
   isect i;
   while (scene->intersect(shadowRay, i)) {  
+    if (i.getT() > glm::distance(p, position)) {
+      break;
+    }
     // If there's an intersection, check material transparency
     const Material &m = i.getMaterial();
     glm::dvec3 kt = m.kt(i);  // Transmittance of material at intersection
+
+
 
     if (glm::length(kt) == 0.0) {  
       // If kt is zero, the object is fully opaque -> fully shadowed
@@ -85,7 +90,7 @@ glm::dvec3 PointLight::shadowAttenuation(const ray &r,
 
     // Move the shadow ray forward slightly past the intersection
     glm::dvec3 newOrigin = shadowRay.at(i.getT()) + RAY_EPSILON * getDirection(p);
-    ray shadowRay = ray(newOrigin, getDirection(p), attenuation, ray::SHADOW);
+    shadowRay = ray(newOrigin, getDirection(p), attenuation, ray::SHADOW);
   }
 
   return attenuation;
