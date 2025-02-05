@@ -16,7 +16,28 @@ glm::dvec3 DirectionalLight::shadowAttenuation(const ray &r,
                                                const glm::dvec3 &p) const {
   // YOUR CODE HERE:
   // You should implement shadow-handling code here.
-  return glm::dvec3(1.0, 1.0, 1.0);
+  glm::dvec3 attenuation(1.0, 1.0, 1.0);
+  ray shadowRay(p + getDirection(p) * RAY_EPSILON, getDirection(p), r.getAtten(), ray::SHADOW);
+  isect i;
+  while (scene->intersect(shadowRay, i)) {  
+    // If there's an intersection, check material transparency
+    const Material &m = i.getMaterial();
+    glm::dvec3 kt = m.kt(i);  // Transmittance of material at intersection
+
+    if (glm::length(kt) == 0.0) {  
+      // If kt is zero, the object is fully opaque -> fully shadowed
+      return glm::dvec3(0.0, 0.0, 0.0);
+    }
+
+    // Apply transparency attenuation
+    attenuation *= kt;
+
+    // Move the shadow ray forward slightly past the intersection
+    glm::dvec3 newOrigin = shadowRay.at(i.getT()) + RAY_EPSILON * getDirection(p);
+    shadowRay = ray(newOrigin, getDirection(p), attenuation, ray::SHADOW);
+  }
+
+  return attenuation;
 }
 
 glm::dvec3 DirectionalLight::getColor() const { return color; }
@@ -46,7 +67,33 @@ glm::dvec3 PointLight::shadowAttenuation(const ray &r,
                                          const glm::dvec3 &p) const {
   // YOUR CODE HERE:
   // You should implement shadow-handling code here.
-  return glm::dvec3(1, 1, 1);
+  glm::dvec3 attenuation(1.0, 1.0, 1.0);
+  ray shadowRay = ray(p + getDirection(p) * RAY_EPSILON, getDirection(p), r.getAtten(), ray::SHADOW);
+  isect i;
+  while (scene->intersect(shadowRay, i)) {  
+    if (i.getT() > glm::distance(p, position)) {
+      break;
+    }
+    // If there's an intersection, check material transparency
+    const Material &m = i.getMaterial();
+    glm::dvec3 kt = m.kt(i);  // Transmittance of material at intersection
+
+
+
+    if (glm::length(kt) == 0.0) {  
+      // If kt is zero, the object is fully opaque -> fully shadowed
+      return glm::dvec3(0.0, 0.0, 0.0);
+    }
+
+    // Apply transparency attenuation
+    attenuation *= kt;
+
+    // Move the shadow ray forward slightly past the intersection
+    glm::dvec3 newOrigin = shadowRay.at(i.getT()) + RAY_EPSILON * getDirection(p);
+    shadowRay = ray(newOrigin, getDirection(p), attenuation, ray::SHADOW);
+  }
+
+  return attenuation;
 }
 
 #define VERBOSE 0
