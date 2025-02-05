@@ -96,6 +96,7 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
     t = i.getT();
 
     if (depth > 0) {
+      // reflection
       glm::dvec3 D = r.getDirection();
       glm::dvec3 N = i.getN();
       glm::dvec3 R = glm::reflect(D, N);
@@ -103,6 +104,36 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
       glm::dvec3 offsetHitPoint = hitPoint + N * RAY_EPSILON;
       ray reflectedRay(offsetHitPoint, R, r.getAtten(), ray::REFLECTION);
       colorC += m.kr(i) * traceRay(reflectedRay, thresh, depth - 1, t);
+
+      // refraction
+      if (glm::length(m.kt(i)) > RAY_EPSILON) {
+        double n1 = 1.0;
+        double n2 = m.index(i);
+
+        // If we're inside the refracting material
+        if (glm::dot(D, N) > 0) {
+          N = -N;
+          swap(n1, n2);
+        }
+
+        double eta = n1 / n2;
+        double cosI = -glm::dot(D, N);
+        double sinT1 = sqrt(1.0 - cosI * cosI);
+        double sinT2 = eta * sinT1;
+        double cosT = sqrt(1 - (sinT2 * sinT2));
+        glm::dvec3 T =  (eta * D) + (((eta * cosI) - cosT) * N);
+
+        if (sinT2 > 1) {
+          // Total internal refraction, treat as reflection
+          // ray tirRay(offsetHitPoint, R, r.getAtten(), ray::REFLECTION);
+          // colorC += m.kt(i) * traceRay(tirRay, thresh, depth - 1, t);
+        } else {
+          // Normal refraction
+          glm::dvec3 offsetHitPoint = hitPoint - N * RAY_EPSILON;
+          ray refractedRay(offsetHitPoint, T, r.getAtten(), ray::REFRACTION);
+          colorC += traceRay(refractedRay, thresh, depth - 1, t);
+        }
+      }
     }
   } else {
     // No intersection. This ray travels to infinity, so we color
