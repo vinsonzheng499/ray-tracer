@@ -96,7 +96,71 @@ bool TrimeshFace::intersectLocal(ray &r, isect &i) const {
      - If neither is true, assign the parent's material to the intersection.
   */
 
-  i.setObject(this->parent);
+  glm::dvec3 v0 = parent->vertices[ids[0]];
+  glm::dvec3 v1 = parent->vertices[ids[1]];
+  glm::dvec3 v2 = parent->vertices[ids[2]]; 
+  
+  glm::dvec3 N = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+
+  // Ray Plane Intersection
+  double T = glm::dot(v0 - r.getPosition(), normal) / glm::dot(r.getDirection(), normal);
+
+  if (T < RAY_EPSILON) {
+    return false;
+  }
+
+  glm::dvec3 p = r.getPosition() + T * r.getDirection();
+  
+  glm::dvec3 AB = v1 - v0;
+  glm::dvec3 AP = p - v0;
+  glm::dvec3 BC = v2 - v1;
+  glm::dvec3 BP = p - v1;
+  glm::dvec3 CA = v0 - v2;
+  glm::dvec3 CP = p - v2;
+
+  // Inside Outside Test
+  if (glm::dot(glm::cross(AB, AP), normal) >= 0 &&
+      glm::dot(glm::cross(BC, BP), normal) >= 0 &&
+      glm::dot(glm::cross(CA, CP), normal) >= 0) {
+
+    i.setT(T);
+    i.setN(normal);
+
+    // Barycentric Coordinates
+    double areaABC = glm::length(glm::cross(AB, v2 - v0));
+    double alpha = glm::length(glm::cross(BP, v2 - v1)) / areaABC;
+    double beta  = glm::length(glm::cross(CP, v0 - v2)) / areaABC;
+    double gamma = 1.0 - alpha - beta;
+
+    // UV Coordinates
+    if (!parent->uvCoords.empty()) {
+        glm::dvec2 uvA = parent->uvCoords[ids[0]];
+        glm::dvec2 uvB = parent->uvCoords[ids[1]];
+        glm::dvec2 uvC = parent->uvCoords[ids[2]];
+
+        glm::dvec2 uv = alpha * uvA + beta * uvB + gamma * uvC;
+        i.setUVCoordinates(uv);
+    }
+    // Vertex Colors
+    else if (!parent->vertColors.empty()) {
+        glm::dvec3 colorA = parent->vertColors[ids[0]];
+        glm::dvec3 colorB = parent->vertColors[ids[1]];
+        glm::dvec3 colorC = parent->vertColors[ids[2]];
+
+        glm::dvec3 interpolatedColor = alpha * colorA + beta * colorB + gamma * colorC;
+
+        Material* newMat = new Material(parent->getMaterial());
+        newMat->setDiffuse(interpolatedColor);
+        i.setMaterial(*newMat);
+    }
+    else {
+      i.setMaterial(parent->getMaterial());
+    }
+
+    i.setObject(this->parent);
+    return true;
+  }
+
   return false;
 }
 
