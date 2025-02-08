@@ -29,8 +29,21 @@ glm::dvec3 DirectionalLight::shadowAttenuation(const ray &r,
       return glm::dvec3(0.0, 0.0, 0.0);
     }
 
-    // Apply transparency attenuation
-    attenuation *= kt;
+   // Entry point A
+    glm::dvec3 A = shadowRay.at(i.getT());
+
+    // Fire a new ray (r2) from slightly past A to find exit point B
+    ray exitRay(A + getDirection(p) * RAY_EPSILON, getDirection(p), r.getAtten(), ray::SHADOW);
+    isect exitIntersection;
+    double d = 0.0;
+
+    if (scene->intersect(exitRay, exitIntersection)) {
+      glm::dvec3 B = exitRay.at(exitIntersection.getT());
+      d = glm::distance(A, B);
+    }
+
+    // Apply component-wise attenuation: (kt)^d
+    attenuation *= glm::pow(kt, glm::dvec3(d));
 
     // Move the shadow ray forward slightly past the intersection
     glm::dvec3 newOrigin = shadowRay.at(i.getT()) + RAY_EPSILON * getDirection(p);
@@ -78,15 +91,26 @@ glm::dvec3 PointLight::shadowAttenuation(const ray &r,
     const Material &m = i.getMaterial();
     glm::dvec3 kt = m.kt(i);  // Transmittance of material at intersection
 
-
-
     if (glm::length(kt) == 0.0) {  
       // If kt is zero, the object is fully opaque -> fully shadowed
       return glm::dvec3(0.0, 0.0, 0.0);
     }
 
-    // Apply transparency attenuation
-    attenuation *= kt;
+    // Entry point A
+    glm::dvec3 A = shadowRay.at(i.getT());
+
+    // Fire a new ray (r2) from slightly past A to find exit point B
+    ray exitRay(A + getDirection(p) * RAY_EPSILON, getDirection(p), r.getAtten(), ray::SHADOW);
+    isect exitIntersection;
+    double d = 0.0;
+
+    if (scene->intersect(exitRay, exitIntersection)) {
+      glm::dvec3 B = exitRay.at(exitIntersection.getT());
+      d = glm::distance(A, B);
+    }
+
+    // Apply component-wise attenuation: (kt)^d
+    attenuation *= glm::pow(kt, glm::dvec3(d));
 
     // Move the shadow ray forward slightly past the intersection
     glm::dvec3 newOrigin = shadowRay.at(i.getT()) + RAY_EPSILON * getDirection(p);

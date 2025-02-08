@@ -97,16 +97,19 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
 
     if (depth > 0) {
       // reflection
-      glm::dvec3 D = r.getDirection();
-      glm::dvec3 N = i.getN();
+      glm::dvec3 D = glm::normalize(r.getDirection());
+      glm::dvec3 N = glm::normalize(i.getN());
       glm::dvec3 R = glm::reflect(D, N);
       glm::dvec3 hitPoint = r.at(i);
       glm::dvec3 offsetHitPoint = hitPoint + N * RAY_EPSILON;
-      ray reflectedRay(offsetHitPoint, R, r.getAtten(), ray::REFLECTION);
-      colorC += m.kr(i) * traceRay(reflectedRay, thresh, depth - 1, t);
+
+      if (m.Refl()) {
+        ray reflectedRay(offsetHitPoint, R, r.getAtten(), ray::REFLECTION);
+        colorC += m.kr(i) * traceRay(reflectedRay, thresh, depth - 1, t);
+      }
 
       // refraction
-      if (glm::length(m.kt(i)) > RAY_EPSILON) {
+      if (m.Trans()) {
         double n1 = 1.0;
         double n2 = m.index(i);
 
@@ -123,7 +126,7 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
         double cosT = sqrt(1 - (sinT2 * sinT2));
         glm::dvec3 T =  (eta * D) + (((eta * cosI) - cosT) * N);
 
-        if (sinT2 > 1) {
+        if (sinT2 > 1 || n1 == n2 || glm::asin(sinT1) == 0) {
           // Total internal refraction, treat as reflection
           // ray tirRay(offsetHitPoint, R, r.getAtten(), ray::REFLECTION);
           // colorC += m.kt(i) * traceRay(tirRay, thresh, depth - 1, t);
