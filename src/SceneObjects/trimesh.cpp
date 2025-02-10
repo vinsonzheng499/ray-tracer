@@ -100,8 +100,6 @@ bool TrimeshFace::intersectLocal(ray &r, isect &i) const {
   glm::dvec3 v1 = parent->vertices[ids[1]];
   glm::dvec3 v2 = parent->vertices[ids[2]]; 
   
-  glm::dvec3 N = glm::normalize(glm::cross(v1 - v0, v2 - v0));
-
   // Ray Plane Intersection
   double T = glm::dot(v0 - r.getPosition(), normal) / glm::dot(r.getDirection(), normal);
 
@@ -167,7 +165,7 @@ bool TrimeshFace::intersectLocal(ray &r, isect &i) const {
       i.setN(interpolatedNormal);
     }
     else {
-      i.setN(N); // If no per-vertex normals, use the face normal
+      i.setN(normal); // If no per-vertex normals, use the face normal
     }
 
     i.setObject(this->parent);
