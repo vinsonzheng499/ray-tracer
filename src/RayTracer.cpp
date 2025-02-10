@@ -346,9 +346,6 @@ int RayTracer::aaImage() {
       return 0; // No anti-aliasing needed
   }
 
-  // Create a temporary buffer to store the original image
-  std::vector<unsigned char> tempBuffer = buffer;
-
   // For each pixel
   for (int i = 0; i < buffer_width; i++) {
       for (int j = 0; j < buffer_height; j++) {
@@ -388,9 +385,9 @@ int RayTracer::aaImage() {
                       // Calculate subpixel position.  Note that the offsets need to be within the range [0, 1].
                       // For example if we have 4 samples per pixel (samples=4, pixels per dimension = 2),
                       // then si and sj range from 0 to 3, and the offset becomes (si + 0.5) / 2 to keep the result inside [0,1]
-                      int pixelsPerDimension = (int)sqrt(samples);
-                      double x = (i + (si + 0.5) / pixelsPerDimension) / double(buffer_width);
-                      double y = (j + (sj + 0.5) / pixelsPerDimension) / double(buffer_height);
+                      double stratumSize = 1.0 / sqrt(samples);
+                      double x = (i + (si * stratumSize + stratumSize/2.0)) / double(buffer_width);
+                      double y = (j + (sj * stratumSize + stratumSize/2.0)) / double(buffer_height);
                       
                       // Trace ray through subpixel
                       accumulatedColor += trace(x, y);
