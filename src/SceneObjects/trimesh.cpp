@@ -103,7 +103,7 @@ bool TrimeshFace::intersectLocal(ray &r, isect &i) const {
   // Ray Plane Intersection
   double T = glm::dot(v0 - r.getPosition(), normal) / glm::dot(r.getDirection(), normal);
 
-  if (T < RAY_EPSILON) {
+  if (T < 0.0) {
     return false;
   }
 
