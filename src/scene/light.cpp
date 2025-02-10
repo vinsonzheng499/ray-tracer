@@ -38,8 +38,13 @@ glm::dvec3 DirectionalLight::shadowAttenuation(const ray &r,
     double d = 0.0;
 
     if (scene->intersect(exitRay, exitIntersection)) {
-      glm::dvec3 B = exitRay.at(exitIntersection.getT());
-      d = glm::distance(A, B);
+      // Only consider this intersection if it's the actual exit point
+      if (glm::length(exitIntersection.getMaterial().kt(exitIntersection)) > 0) {
+        glm::dvec3 B = exitRay.at(exitIntersection.getT());
+        d = glm::distance(A, B);
+        // Modify attenuation calculation
+        attenuation *= glm::exp(-m.kt(i) * d);
+      }
     }
 
     // Apply component-wise attenuation: (kt)^d
@@ -105,8 +110,13 @@ glm::dvec3 PointLight::shadowAttenuation(const ray &r,
     double d = 0.0;
 
     if (scene->intersect(exitRay, exitIntersection)) {
-      glm::dvec3 B = exitRay.at(exitIntersection.getT());
-      d = glm::distance(A, B);
+      // Only consider this intersection if it's the actual exit point
+      if (glm::length(exitIntersection.getMaterial().kt(exitIntersection)) > 0) {
+        glm::dvec3 B = exitRay.at(exitIntersection.getT());
+        d = glm::distance(A, B);
+        // Modify attenuation calculation
+        attenuation *= glm::exp(-m.kt(i) * d);
+      }
     }
 
     // Apply component-wise attenuation: (kt)^d
