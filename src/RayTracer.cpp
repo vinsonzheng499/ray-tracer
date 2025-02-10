@@ -318,8 +318,71 @@ int RayTracer::aaImage() {
   //
   // TIP: samples and aaThresh have been synchronized with TraceUI by
   //      RayTracer::traceSetup() function
+  if (samples <= 1) {
+      return 0; // No anti-aliasing needed
+  }
 
-  return 0;
+  // Create a temporary buffer to store the original image
+  std::vector<unsigned char> tempBuffer = buffer;
+
+  // For each pixel
+  for (int i = 0; i < buffer_width; i++) {
+      for (int j = 0; j < buffer_height; j++) {
+          // Get the original pixel color
+          glm::dvec3 originalColor = getPixel(i, j);
+          
+          // Check if anti-aliasing is needed for this pixel by comparing with neighbors
+          bool needsAA = false;
+          
+          // Check neighboring pixels
+          for (int di = -1; di <= 1 && !needsAA; di++) {
+              for (int dj = -1; dj <= 1; dj++) {
+                  // Skip the current pixel
+                  if (di == 0 && dj == 0) continue;
+
+                  int ni = i + di;
+                  int nj = j + dj;
+                  
+                  if (ni >= 0 && ni < buffer_width && nj >= 0 && nj < buffer_height) {
+                      glm::dvec3 neighborColor = getPixel(ni, nj);
+                      
+                      // If difference between pixel and neighbor exceeds threshold
+                      if (glm::length(originalColor - neighborColor) > aaThresh) {
+                          needsAA = true;
+                          break;
+                      }
+                  }
+              }
+          }
+
+          if (needsAA) {
+              glm::dvec3 accumulatedColor(0.0);
+              
+              // Supersampling grid
+              for (int si = 0; si < samples; si++) {
+                  for (int sj = 0; sj < samples; sj++) {
+                      // Calculate subpixel position.  Note that the offsets need to be within the range [0, 1].
+                      // For example if we have 4 samples per pixel (samples=4, pixels per dimension = 2),
+                      // then si and sj range from 0 to 3, and the offset becomes (si + 0.5) / 2 to keep the result inside [0,1]
+                      int pixelsPerDimension = (int)sqrt(samples);
+                      double x = (i + (si + 0.5) / pixelsPerDimension) / double(buffer_width);
+                      double y = (j + (sj + 0.5) / pixelsPerDimension) / double(buffer_height);
+                      
+                      // Trace ray through subpixel
+                      accumulatedColor += trace(x, y);
+                  }
+              }
+              
+              // Average the accumulated colors
+              glm::dvec3 finalColor = accumulatedColor / (double)(samples * samples);              
+
+              // Set the anti-aliased pixel
+              setPixel(i, j, finalColor);
+          }
+      }
+  }
+
+  return 1;
 }
 
 bool RayTracer::checkRender() {
