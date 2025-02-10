@@ -157,6 +157,19 @@ bool TrimeshFace::intersectLocal(ray &r, isect &i) const {
       i.setMaterial(parent->getMaterial());
     }
 
+    // Phong Normal Interpolation
+    if (!parent->normals.empty()) {
+      glm::dvec3 nA = parent->normals[ids[0]];
+      glm::dvec3 nB = parent->normals[ids[1]];
+      glm::dvec3 nC = parent->normals[ids[2]];
+
+      glm::dvec3 interpolatedNormal = glm::normalize(alpha * nA + beta * nB + gamma * nC);
+      i.setN(interpolatedNormal);
+    }
+    else {
+      i.setN(N); // If no per-vertex normals, use the face normal
+    }
+
     i.setObject(this->parent);
     return true;
   }
