@@ -38,6 +38,9 @@ glm::dvec3 Material::shade(Scene *scene, const ray &r, const isect &i) const {
   
   glm::dvec3 N = glm::normalize(i.getN()); // surface normal at shading point
   glm::dvec3 V = glm::normalize(-r.getDirection()); // view direction from surface to camera
+  if (glm::dot(N, V) < 0.0) {
+    N = -N;
+  }
   glm::dvec3 I_a = scene->ambient(); // ambient light intensity
   glm::dvec3 ambient = ka(i) * I_a; // ambient term
   glm::dvec3 I_phong = ke(i) + ambient; // final intensity at surface
@@ -49,8 +52,7 @@ glm::dvec3 Material::shade(Scene *scene, const ray &r, const isect &i) const {
     glm::dvec3 L = glm::normalize(pLight->getDirection(P)); // Direction vector from the surface point to the light source
     double N_dot_L = max(glm::dot(N, L), 0.0); // clamped dot product
     glm::dvec3 diffuse = kd(i) * N_dot_L; // diffuse term
-
-    glm::dvec3 R = glm::normalize((2.0 * N_dot_L * N) - L); // reflection vector of light direction about surface normal
+    glm::dvec3 R = glm::reflect(-L, N); // reflection vector of light direction about surface normal
     double V_dot_R = max(glm::dot(V, R), 0.0); // clamped dot product
     double ns = shininess(i); // shininess exponent
     glm::dvec3 specular = ks(i) * pow(V_dot_R, ns); // specular term

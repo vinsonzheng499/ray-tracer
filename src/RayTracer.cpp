@@ -22,6 +22,9 @@
 #include <fstream>
 #include <iostream>
 
+#include <thread>
+#include <future> 
+
 using namespace std;
 extern TraceUI *traceUI;
 
@@ -120,20 +123,28 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
         }
 
         double eta = n1 / n2;
-        double cosI = -glm::dot(D, N);
-        double sinT1 = sqrt(1.0 - cosI * cosI);
-        double sinT2 = eta * sinT1;
-        double cosT = sqrt(1 - (sinT2 * sinT2));
-        glm::dvec3 T =  (eta * D) + (((eta * cosI) - cosT) * N);
+        glm::dvec3 T = glm::refract(D, N, eta);
 
-        if (sinT2 > 1 || n1 == n2 || glm::asin(sinT1) == 0) {
-          // Total internal refraction, treat as reflection
-          // ray tirRay(offsetHitPoint, R, r.getAtten(), ray::REFLECTION);
-          // colorC += m.kt(i) * traceRay(tirRay, thresh, depth - 1, t);
-        } else {
-          // Normal refraction
+        if (glm::length(T) > 0.0) {
+          // Normal refraction, otherwise TIR and we already shot a reflection ray
           glm::dvec3 offsetHitPoint = hitPoint - N * RAY_EPSILON;
           ray refractedRay(offsetHitPoint, T, r.getAtten(), ray::REFRACTION);
+
+          // // Entry point A
+          // glm::dvec3 A = refractedRay.at(i.getT());
+
+          // // Fire a new ray (r2) from slightly past A to find exit point B
+          // ray exitRay(A + T * RAY_EPSILON, T, r.getAtten(), ray::REFRACTION);
+          // isect exitIntersection;
+          // double d = 0.0;
+
+          // if (scene->intersect(exitRay, exitIntersection)) {
+          //   glm::dvec3 B = exitRay.at(exitIntersection.getT());
+          //   d = glm::distance(A, B);
+          // }
+
+          // colorC += glm::pow(m.kt(i), glm::dvec3(d)) * traceRay(refractedRay, thresh, depth - 1, t);
+
           colorC += traceRay(refractedRay, thresh, depth - 1, t);
         }
       }
@@ -278,24 +289,27 @@ void RayTracer::traceSetup(int w, int h) {
  *
  */
 void RayTracer::traceImage(int w, int h) {
-  // Always call traceSetup before rendering anything.
-  traceSetup(w, h);
+    traceSetup(w, h); // Setup before rendering
 
-  // YOUR CODE HERE
-  // FIXME: Start one or more threads for ray tracing
-  //
-  // TIPS: Ideally, the traceImage should be executed asynchronously,
-  //       i.e. returns IMMEDIATELY after working threads are launched.
-  //
-  //       An asynchronous traceImage lets the GUI update your results
-  //       while rendering.
-  int totalPixels = w * h;
+    // Number of threads (or use std::thread::hardware_concurrency())
+    int numThreads = std::max(1u, std::thread::hardware_concurrency());
 
-  for (int i = 0; i < h; ++i) {
-    for (int j = 0; j < w; ++j) {
-      tracePixel(i, j);
+    std::vector<std::future<void>> futures;
+    int rowsPerThread = h / numThreads;
+
+    // Launch threads asynchronously
+    for (int t = 0; t < numThreads; ++t) {
+      int startRow = t * rowsPerThread;
+      int endRow = (t == numThreads - 1) ? h : startRow + rowsPerThread;
+
+      futures.push_back(std::async(std::launch::async, [this, startRow, endRow, w]() {
+          for (int i = startRow; i < endRow; ++i) {
+              for (int j = 0; j < w; ++j) {
+                  tracePixel(i, j);
+              }
+          }
+      }));
     }
-  }
 }
 
 int RayTracer::aaImage() {
@@ -304,6 +318,7 @@ int RayTracer::aaImage() {
   //
   // TIP: samples and aaThresh have been synchronized with TraceUI by
   //      RayTracer::traceSetup() function
+
   return 0;
 }
 
