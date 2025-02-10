@@ -52,6 +52,8 @@ public:
   bool isReady() const { return m_bBufferReady; }
 
   const Scene &getScene() { return *scene; }
+  
+  void workerThread(int threadId);
 
   bool stopTrace;
 
@@ -70,6 +72,12 @@ private:
   double aaThresh;
   int samples;
 
+  std::vector<std::thread> workerThreads;
+  std::vector<bool> threadDone;
+  std::queue<Pixel> pixelQueue;
+  std::mutex bufferMutex;
+  std::atomic<int> completedPixels{0};
+  bool renderingDone{false};
 };
 
 #endif // __RAYTRACER_H__

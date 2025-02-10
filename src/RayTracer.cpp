@@ -278,6 +278,34 @@ void RayTracer::traceSetup(int w, int h) {
   // FIXME: Additional initializations
 }
 
+void RayTracer::workerThread(int threadId) {
+  while (true) {
+      Pixel pixel(0, 0, nullptr);
+      
+      // Get next pixel from queue
+      {
+          std::lock_guard<std::mutex> lock(bufferMutex);
+          if (pixelQueue.empty()) {
+              threadDone[threadId] = true;
+              return;
+          }
+          pixel = pixelQueue.front();
+          pixelQueue.pop();
+      }
+      
+      // Process the pixel
+      glm::dvec3 color = tracePixel(pixel.ix, pixel.jy);
+      
+      // Update the buffer
+      {
+          std::lock_guard<std::mutex> lock(bufferMutex);
+          pixel.value[0] = (unsigned char)(255.0 * color[0]);
+          pixel.value[1] = (unsigned char)(255.0 * color[1]);
+          pixel.value[2] = (unsigned char)(255.0 * color[2]);
+      }
+  }
+}
+
 /*
  * RayTracer::traceImage
  *
@@ -289,27 +317,31 @@ void RayTracer::traceSetup(int w, int h) {
  *
  */
 void RayTracer::traceImage(int w, int h) {
-    traceSetup(w, h); // Setup before rendering
-
-    // Number of threads (or use std::thread::hardware_concurrency())
-    int numThreads = std::max(1u, std::thread::hardware_concurrency());
-
-    std::vector<std::future<void>> futures;
-    int rowsPerThread = h / numThreads;
-
-    // Launch threads asynchronously
-    for (int t = 0; t < numThreads; ++t) {
-      int startRow = t * rowsPerThread;
-      int endRow = (t == numThreads - 1) ? h : startRow + rowsPerThread;
-
-      futures.push_back(std::async(std::launch::async, [this, startRow, endRow, w]() {
-          for (int i = startRow; i < endRow; ++i) {
-              for (int j = 0; j < w; ++j) {
-                  tracePixel(i, j);
-              }
-          }
-      }));
-    }
+  traceSetup(w, h);
+  
+  // Clear any existing threads
+  waitRender();
+  workerThreads.clear();
+  threadDone.clear();
+  
+  // Initialize thread status tracking
+  threadDone.resize(threads, false);
+  
+  // Fill the pixel queue
+  while (!pixelQueue.empty()) pixelQueue.pop();
+  for (int j = 0; j < h; ++j) {
+      for (int i = 0; i < w; ++i) {
+          unsigned char* pixel = buffer.data() + (i + j * w) * 3;
+          pixelQueue.push(Pixel(i, j, pixel));
+      }
+  }
+  
+  // Start the worker threads
+  for (unsigned int i = 0; i < threads; ++i) {
+      workerThreads.push_back(std::thread(&RayTracer::workerThread, this, i));
+  }
+  
+  // Return immediately - rendering continues asynchronously
 }
 
 int RayTracer::aaImage() {
@@ -386,22 +418,26 @@ int RayTracer::aaImage() {
 }
 
 bool RayTracer::checkRender() {
-  // YOUR CODE HERE
-  // FIXME: Return true if tracing is done.
-  //        This is a helper routine for GUI.
-  //
-  // TIPS: Introduce an array to track the status of each worker thread.
-  //       This array is maintained by the worker threads.
+  if (workerThreads.empty()) {
+      return true;
+  }
+  
+  // Check if all threads are done
+  for (bool done : threadDone) {
+      if (!done) return false;
+  }
   return true;
 }
 
 void RayTracer::waitRender() {
-  // YOUR CODE HERE
-  // FIXME: Wait until the rendering process is done.
-  //        This function is essential if you are using an asynchronous
-  //        traceImage implementation.
-  //
-  // TIPS: Join all worker threads here.
+  // Join all threads
+  for (auto& thread : workerThreads) {
+      if (thread.joinable()) {
+          thread.join();
+      }
+  }
+  workerThreads.clear();
+  threadDone.clear();
 }
 
 
