@@ -50,10 +50,19 @@ glm::dvec3 Material::shade(Scene *scene, const ray &r, const isect &i) const {
   {
     glm::dvec3 I_l = pLight->getColor(); // intensity of light source
     glm::dvec3 L = glm::normalize(pLight->getDirection(P)); // Direction vector from the surface point to the light source
-    double N_dot_L = max(glm::dot(N, L), 0.0); // clamped dot product
-    glm::dvec3 diffuse = kd(i) * N_dot_L; // diffuse term
-    glm::dvec3 R = glm::reflect(-L, N); // reflection vector of light direction about surface normal
-    double V_dot_R = max(glm::dot(V, R), 0.0); // clamped dot product
+    // double N_dot_L = max(glm::dot(i.getN(), L), 0.0); // clamped dot product
+    // if (glm::dot(i.getN(), L) < 0.0) {
+    //   L = -L;
+    //   N_dot_L = max(glm::dot(i.getN(), L), 0.0);
+    // }
+    // glm::dvec3 diffuse = kd(i) * N_dot_L; // diffuse term
+    double N_dot_L = glm::dot(i.getN(), L);
+    glm::dvec3 diffuse = glm::abs(kd(i) * N_dot_L); // diffuse term
+    if (Trans()) {
+      diffuse = glm::abs(diffuse);
+    }
+    glm::dvec3 R = glm::reflect(-L, i.getN()); // reflection vector of light direction about surface normal
+    double V_dot_R = max(glm::dot(glm::normalize(-r.getDirection()), R), 0.0); // clamped dot product
     double ns = shininess(i); // shininess exponent
     glm::dvec3 specular = ks(i) * pow(V_dot_R, ns); // specular term
 

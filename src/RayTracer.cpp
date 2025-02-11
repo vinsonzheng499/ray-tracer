@@ -115,11 +115,13 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
       if (m.Trans()) {
         double n1 = 1.0;
         double n2 = m.index(i);
+        bool entering = true;
 
         // If we're inside the refracting material
         if (glm::dot(D, N) > 0) {
           N = -N;
           swap(n1, n2);
+          entering = false;
         }
 
         double eta = n1 / n2;
@@ -130,18 +132,22 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
           glm::dvec3 offsetHitPoint = hitPoint - N * RAY_EPSILON;
           ray refractedRay(offsetHitPoint, T, r.getAtten(), ray::REFRACTION);
 
-          // // Entry point A
-          // glm::dvec3 A = refractedRay.at(i.getT());
-          // // Fire a new ray (r2) from slightly past A to find exit point B
-          // ray exitRay(A + T * RAY_EPSILON, T, r.getAtten(), ray::REFRACTION);
-          // isect exitIntersection;
-          // double d = 0.0;
-          // if (scene->intersect(exitRay, exitIntersection)) {
-          //   glm::dvec3 B = exitRay.at(exitIntersection.getT());
-          //   d = glm::distance(A, B);
-          // }
-          // colorC += glm::pow(m.kt(i), glm::dvec3(d)) * traceRay(refractedRay, thresh, depth - 1, t);
-          colorC += traceRay(refractedRay, thresh, depth - 1, t);
+          // Entry point A
+          glm::dvec3 A = refractedRay.at(i.getT());
+          // Fire a new ray (r2) from slightly past A to find exit point B
+          ray exitRay(A + T * RAY_EPSILON, T, r.getAtten(), ray::REFRACTION);
+          isect exitIntersection;
+          double d = 0.0;
+          if (scene->intersect(exitRay, exitIntersection)) {
+            glm::dvec3 B = exitRay.at(exitIntersection.getT());
+            d = glm::abs(glm::distance(A, B));
+          }
+          if (entering) {
+            colorC += traceRay(refractedRay, thresh, depth - 1, t);
+          } else {
+            colorC += glm::pow(m.kt(i), glm::dvec3(d)) * traceRay(refractedRay, thresh, depth - 1, t);
+          }
+          // colorC += traceRay(refractedRay, thresh, depth - 1, t);
         }
       }
     }
