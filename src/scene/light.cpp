@@ -12,50 +12,60 @@ double DirectionalLight::distanceAttenuation(const glm::dvec3 &) const {
   return 1.0;
 }
 
-glm::dvec3 DirectionalLight::shadowAttenuation(const ray &r,
-                                               const glm::dvec3 &p) const {
-  // YOUR CODE HERE:
-  // You should implement shadow-handling code here.
-  glm::dvec3 attenuation(1.0, 1.0, 1.0);
-  ray shadowRay(p + getDirection(p) * RAY_EPSILON, getDirection(p), r.getAtten(), ray::SHADOW);
-  isect i;
-  
-  while (scene->intersect(shadowRay, i)) {  
-    // If there's an intersection, check material transparency
-    const Material &m = i.getMaterial();
+glm::dvec3 DirectionalLight::shadowAttenuation(const ray &r, const glm::dvec3 &p) const {
+    glm::dvec3 attenuation(1.0, 1.0, 1.0);
+    ray shadowRay(p + getDirection(p) * RAY_EPSILON, getDirection(p), r.getAtten(), ray::SHADOW);
+    isect i;
     
-    // If material is opaque, full shadow
-    if (!m.Trans()) {
-      return glm::dvec3(0.0, 0.0, 0.0);
+    while (scene->intersect(shadowRay, i)) {  
+        // If there's an intersection, check material transparency
+        const Material &m = i.getMaterial();
+        
+        // If material is opaque, full shadow
+        if (!m.Trans()) {
+            return glm::dvec3(0.0, 0.0, 0.0);
+        }
+
+        // Check if we're entering or inside the object
+        glm::dvec3 D = glm::normalize(shadowRay.getDirection());
+        glm::dvec3 N = glm::normalize(i.getN());
+        bool entering = (glm::dot(D, N) < 0.0);
+        
+        if (!entering) {
+            N = -N;
+        }
+
+        // Find exit point and calculate attenuation through the object
+        glm::dvec3 A = shadowRay.at(i.getT());
+        // When exiting, we want to start slightly inside the object
+        // When entering, we want to start slightly outside the object
+        ray exitRay(A + (entering ? -N : N) * RAY_EPSILON, 
+                   D, 
+                   r.getAtten(), 
+                   ray::SHADOW);
+        isect exitIntersection;
+        
+        if (scene->intersect(exitRay, exitIntersection)) {
+            glm::dvec3 B = exitRay.at(exitIntersection.getT());
+            double d = glm::max(glm::distance(A, B), 0.0);
+            // Apply attenuation for the distance traveled through the object
+            attenuation *= glm::pow(m.kt(i), glm::dvec3(d));
+        }
+
+        // Move the shadow ray forward slightly past the intersection
+        // If we're entering, move slightly past the exit point
+        // If we're exiting, move slightly past the current intersection
+        glm::dvec3 newOrigin;
+        if (entering && scene->intersect(exitRay, exitIntersection)) {
+            newOrigin = exitRay.at(exitIntersection.getT()) + RAY_EPSILON * getDirection(p);
+        } else {
+            newOrigin = shadowRay.at(i.getT()) + RAY_EPSILON * getDirection(p);
+        }
+        shadowRay = ray(newOrigin, getDirection(p), attenuation, ray::SHADOW);
     }
 
-    // Check if we're entering or inside the object
-    glm::dvec3 D = glm::normalize(shadowRay.getDirection());
-    glm::dvec3 N = glm::normalize(i.getN());
-    bool entering = (glm::dot(D, N) < 0.0);
-
-    if (entering) {
-      // Find exit point when entering object
-      glm::dvec3 A = shadowRay.at(i.getT());
-      ray exitRay(A - N * RAY_EPSILON, D, r.getAtten(), ray::SHADOW);
-      isect exitIntersection;
-      
-      if (scene->intersect(exitRay, exitIntersection)) {
-        glm::dvec3 B = exitRay.at(exitIntersection.getT());
-        double d = glm::distance(A, B);
-        // Only apply attenuation when traveling through object
-        attenuation *= glm::pow(m.kt(i), glm::dvec3(d));
-      }
-    }
-
-    // Move the shadow ray forward slightly past the intersection
-    glm::dvec3 newOrigin = shadowRay.at(i.getT()) + RAY_EPSILON * getDirection(p);
-    shadowRay = ray(newOrigin, getDirection(p), attenuation, ray::SHADOW);
-  }
-
-  return attenuation;
+    return attenuation;
 }
-
 glm::dvec3 DirectionalLight::getColor() const { return color; }
 
 glm::dvec3 DirectionalLight::getDirection(const glm::dvec3 &) const {
@@ -79,52 +89,62 @@ glm::dvec3 PointLight::getDirection(const glm::dvec3 &P) const {
   return glm::normalize(position - P);
 }
 
-glm::dvec3 PointLight::shadowAttenuation(const ray &r,
-                                         const glm::dvec3 &p) const {
-  // YOUR CODE HERE:
-  // You should implement shadow-handling code here.
-  glm::dvec3 attenuation(1.0, 1.0, 1.0);
-  ray shadowRay = ray(p + getDirection(p) * RAY_EPSILON, getDirection(p), r.getAtten(), ray::SHADOW);
-  isect i;
-  
-  while (scene->intersect(shadowRay, i)) {  
-    if (i.getT() > glm::distance(p, position)) {
-      break;
-    }
+glm::dvec3 PointLight::shadowAttenuation(const ray &r, const glm::dvec3 &p) const {
+    glm::dvec3 attenuation(1.0, 1.0, 1.0);
+    ray shadowRay = ray(p + getDirection(p) * RAY_EPSILON, getDirection(p), r.getAtten(), ray::SHADOW);
+    isect i;
     
-    // If there's an intersection, check material transparency
-    const Material &m = i.getMaterial();
-    
-    // If material is opaque, full shadow
-    if (!m.Trans()) {
-      return glm::dvec3(0.0, 0.0, 0.0);
+    while (scene->intersect(shadowRay, i)) {  
+        // Check if intersection is beyond the light source
+        if (i.getT() > glm::distance(p, position)) {
+            break;
+        }
+        
+        const Material &m = i.getMaterial();
+        
+        if (!m.Trans()) {
+            return glm::dvec3(0.0, 0.0, 0.0);
+        }
+
+        glm::dvec3 D = glm::normalize(shadowRay.getDirection());
+        glm::dvec3 N = glm::normalize(i.getN());
+        bool entering = (glm::dot(D, N) < 0.0);
+        
+        if (!entering) {
+            N = -N;
+        }
+
+        glm::dvec3 A = shadowRay.at(i.getT());
+        ray exitRay(A + (entering ? -N : N) * RAY_EPSILON, 
+                   D, 
+                   r.getAtten(), 
+                   ray::SHADOW);
+        isect exitIntersection;
+        
+        if (scene->intersect(exitRay, exitIntersection)) {
+            // For point lights, also check if exit point is beyond light source
+            if (exitIntersection.getT() > glm::distance(A, position)) {
+                // Only account for attenuation up to the light source
+                double d = glm::max(glm::distance(A, position), 0.0);
+                attenuation *= glm::pow(m.kt(i), glm::dvec3(d));
+                break;
+            }
+            
+            glm::dvec3 B = exitRay.at(exitIntersection.getT());
+            double d = glm::max(glm::distance(A, B), 0.0);
+            attenuation *= glm::pow(m.kt(i), glm::dvec3(d));
+        }
+
+        glm::dvec3 newOrigin;
+        if (entering && scene->intersect(exitRay, exitIntersection)) {
+            newOrigin = exitRay.at(exitIntersection.getT()) + RAY_EPSILON * getDirection(p);
+        } else {
+            newOrigin = shadowRay.at(i.getT()) + RAY_EPSILON * getDirection(p);
+        }
+        shadowRay = ray(newOrigin, getDirection(p), attenuation, ray::SHADOW);
     }
 
-    // Check if we're entering or inside the object
-    glm::dvec3 D = glm::normalize(shadowRay.getDirection());
-    glm::dvec3 N = glm::normalize(i.getN());
-    bool entering = (glm::dot(D, N) < 0.0);
-
-    if (entering) {
-      // Find exit point when entering object
-      glm::dvec3 A = shadowRay.at(i.getT());
-      ray exitRay(A - N * RAY_EPSILON, D, r.getAtten(), ray::SHADOW);
-      isect exitIntersection;
-      
-      if (scene->intersect(exitRay, exitIntersection)) {
-        glm::dvec3 B = exitRay.at(exitIntersection.getT());
-        double d = glm::distance(A, B);
-        // Only apply attenuation when traveling through object
-        attenuation *= glm::pow(m.kt(i), glm::dvec3(d));
-      }
-    }
-
-    // Move the shadow ray forward slightly past the intersection
-    glm::dvec3 newOrigin = shadowRay.at(i.getT()) + RAY_EPSILON * getDirection(p);
-    shadowRay = ray(newOrigin, getDirection(p), attenuation, ray::SHADOW);
-  }
-
-  return attenuation;
+    return attenuation;
 }
 
 #define VERBOSE 0
