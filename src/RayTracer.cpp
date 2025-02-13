@@ -102,49 +102,45 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
       // reflection
       glm::dvec3 D = glm::normalize(r.getDirection());
       glm::dvec3 N = glm::normalize(i.getN());
-      glm::dvec3 R = glm::reflect(D, N);
+      glm::dvec3 R = glm::normalize(glm::reflect(D, N));
       glm::dvec3 hitPoint = r.at(i);
+      bool entering = (glm::dot(D, N) < 0.0);
       glm::dvec3 offsetHitPoint = hitPoint + N * RAY_EPSILON;
 
       if (m.Refl()) {
         ray reflectedRay(offsetHitPoint, R, r.getAtten(), ray::REFLECTION);
-        colorC += m.kr(i) * traceRay(reflectedRay, thresh, depth - 1, t);
+        glm::dvec3 transmittance = glm::dvec3(1.0, 1.0, 1.0);
+        if (!entering && m.Trans()) {
+          double d = glm::max(glm::distance(r.getPosition() + D * RAY_EPSILON, r.at(i.getT())), 0.0);
+          transmittance = glm::pow(m.kt(i), glm::dvec3(d));
+        }
+        colorC += transmittance * m.kr(i) * traceRay(reflectedRay, thresh, depth - 1, t);
       }
 
       // refraction
       if (m.Trans()) {
         double n1 = 1.0;
         double n2 = m.index(i);
-        bool entering = true;
 
         // If we're inside the refracting material
-        if (glm::dot(r.getDirection(), i.getN()) > 0) {
-          i.setN(-i.getN());
+        if (!entering) {
+          N = -N;
           swap(n1, n2);
-          entering = false;
+          offsetHitPoint = hitPoint + N * RAY_EPSILON;
         }
 
         double eta = n1 / n2;
-        glm::dvec3 T = glm::refract(r.getDirection(), i.getN(), eta);
+        glm::dvec3 T = glm::normalize(glm::refract(D, N, eta));
 
         if (glm::length(T) > 0.0) {
           // Normal refraction, otherwise TIR and we already shot a reflection ray
-          glm::dvec3 hitPoint = r.at(i);
-          glm::dvec3 offsetHitPoint = hitPoint - i.getN() * RAY_EPSILON;
           ray refractedRay = ray(offsetHitPoint, T, r.getAtten(), ray::REFRACTION);
-          if (entering) {
-            isect exitIntersection;
-            ray exitRay(offsetHitPoint, T, refractedRay.getAtten(), ray::REFRACTION);
-            if (scene->intersect(exitRay, exitIntersection)) {
-                double d = glm::max(glm::distance(offsetHitPoint, exitRay.at(exitIntersection.getT())), 0.0);
-                refractedRay = ray(offsetHitPoint, T, refractedRay.getAtten() * glm::pow(m.kt(i), glm::dvec3(d)), ray::REFRACTION);
-            }
+          glm::dvec3 transmittance = glm::dvec3(1.0, 1.0, 1.0);
+          if (!entering && m.Trans()) {
+            double d = glm::max(glm::distance(r.getPosition() + D * RAY_EPSILON, r.at(i.getT())), 0.0);
+            transmittance = glm::pow(m.kt(i), glm::dvec3(d)); // Attenuate on exit
           }
-          glm::dvec3 refractionColor = traceRay(refractedRay, thresh, depth - 1, t);
-          if (!entering) {
-            refractionColor *= m.kt(i); // Attenuate on exit
-          }
-          colorC += refractionColor;
+          colorC += transmittance * traceRay(refractedRay, thresh, depth - 1, t);;
         }
       }
     }
