@@ -28,12 +28,14 @@
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
+#include "kdTree.h"
+
+class BVHNode;
+
 using std::unique_ptr;
 
 class Light;
 class Scene;
-
-template <typename Obj> class KdTree;
 
 // A SceneElement is anything that lives within a scene. The behavior is
 // intentionally very barebones, since all actual entities are descended
@@ -199,6 +201,8 @@ public:
 
   const BoundingBox &bounds() const { return sceneBounds; }
 
+  void buildBVH();
+
 
 private:
   /* Do not try to access these members directly. If you need to iterate
@@ -227,7 +231,7 @@ private:
   // hasBoundingBoxCapability() are exempt from this requirement.
   BoundingBox sceneBounds;
 
-  KdTree<Geometry> *kdtree;
+  BVHNode* bvh;
 
   mutable std::mutex intersectionCacheMutex;
 

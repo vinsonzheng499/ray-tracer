@@ -91,13 +91,14 @@ void Geometry::ComputeBoundingBox() {
   bounds.setMin(glm::dvec3(newMin));
 }
 
-Scene::Scene() { ambientIntensity = glm::dvec3(0, 0, 0); }
+Scene::Scene() : bvh(nullptr) { ambientIntensity = glm::dvec3(0, 0, 0); }
 
 Scene::~Scene() {
   for (auto &obj : objects)
     delete obj;
   for (auto &light : lights)
     delete light;
+  delete bvh;
 }
 
 void Scene::add(Geometry *obj) {
@@ -112,6 +113,16 @@ void Scene::add(Light *light) { lights.emplace_back(light); }
 // Get any intersection with an object.  Return information about the
 // intersection through the reference parameter.
 bool Scene::intersect(ray &r, isect &i) const {
+  // Use BVH if possible
+  if (bvh) {
+    bool hit = bvh->intersect(r, i);
+    if (TraceUI::m_debug && hit) {
+        addToIntersectCache(std::make_pair(new ray(r), new isect(i)));
+    }
+    return hit;
+  }
+
+  // Fall back to brute force
   double tmin = 0.0;
   double tmax = 0.0;
   bool have_one = false;
@@ -140,4 +151,10 @@ TextureMap *Scene::getTexture(string name) {
     return textureCache[name].get();
   }
   return itr->second.get();
+}
+
+void Scene::buildBVH() {
+  delete bvh;
+  bvh = new BVHNode();
+  bvh->build(objects);
 }
