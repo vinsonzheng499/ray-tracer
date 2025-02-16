@@ -107,7 +107,15 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
       bool entering = (glm::dot(D, N) < 0.0);
       glm::dvec3 offsetHitPoint = hitPoint + N * RAY_EPSILON;
 
-      if (m.Refl()) {
+      if (debugMode) {
+        cout << m.Refl() << endl;
+        cout << "hitPoint: " << hitPoint << endl;
+        cout << "D: " << D << endl;
+        cout << "N: " << N << endl;
+        cout << "R: " << R << endl;
+      }
+
+      if (m.Refl() && entering) {
         ray reflectedRay(offsetHitPoint, R, r.getAtten(), ray::REFLECTION);
         glm::dvec3 transmittance = glm::dvec3(1.0, 1.0, 1.0);
         if (!entering && m.Trans()) {
@@ -117,6 +125,13 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
         colorC += transmittance * m.kr(i) * traceRay(reflectedRay, thresh, depth - 1, t);
       }
 
+      // if (debugMode) {
+      //   cout << "refracting" << endl;
+      //   cout << m.Trans() << endl;
+      //   cout << "hitPoint: " << hitPoint << endl;
+      //   cout << "D: " << D << endl;
+      //   cout << "N: " << N << endl;
+      // }
       // refraction
       if (m.Trans()) {
         double n1 = 1.0;
@@ -132,9 +147,19 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
         double eta = n1 / n2;
         glm::dvec3 T = glm::normalize(glm::refract(D, N, eta));
 
+        if (debugMode) {
+          cout << "D: " << D << endl;
+          cout << "N: " << N << endl;
+          cout << "n1: " << n1 << endl;
+          cout << "n2: " << n2 << endl;
+          cout << "eta: " << eta << endl;
+          cout << "T: " << T << endl;
+          cout << endl;
+        }
+
         if (glm::length(T) > 0.0) {
           // Normal refraction, otherwise TIR and we already shot a reflection ray
-          ray refractedRay = ray(offsetHitPoint, T, r.getAtten(), ray::REFRACTION);
+          ray refractedRay = ray(hitPoint + D * RAY_EPSILON, T, r.getAtten(), ray::REFRACTION);
           glm::dvec3 transmittance = glm::dvec3(1.0, 1.0, 1.0);
           if (!entering && m.Trans()) {
             double d = glm::max(glm::distance(r.getPosition() + D * RAY_EPSILON, r.at(i.getT())), 0.0);
