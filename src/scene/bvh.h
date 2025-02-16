@@ -14,13 +14,16 @@ public:
     BVHNode* right;
     std::vector<Geometry*> objects;
     static const int maxObjectsPerLeaf = 4;
+    int bvhMaxDepth;
+    int bvhLeafSize;
 
+    BVHNode(int bvhMaxDepth, int bvhLeafSize) : left(nullptr), right(nullptr), bvhMaxDepth(bvhMaxDepth), bvhLeafSize(bvhLeafSize) {}
     BVHNode() : left(nullptr), right(nullptr) {}
     ~BVHNode() {
         delete left;
         delete right;
     }
 
-    void build(std::vector<Geometry*>& geometries);
+    void build(std::vector<Geometry*>& geometries, int depth);
     bool intersect(ray& r, isect& i) const;
 };

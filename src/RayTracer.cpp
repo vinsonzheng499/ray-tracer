@@ -252,7 +252,7 @@ bool RayTracer::loadScene(const char *fn) {
   if (!sceneLoaded())
     return false;
 
-  scene->buildBVH();
+  scene->buildBVH(bvhMaxDepth, bvhLeafSize);
 
   return true;
 }
@@ -280,6 +280,8 @@ void RayTracer::traceSetup(int w, int h) {
 
   // YOUR CODE HERE
   // FIXME: Additional initializations
+  bvhMaxDepth = traceUI->getMaxDepth();
+  bvhLeafSize = traceUI->getLeafSize();
 }
 
 void RayTracer::workerThread(int threadId) {

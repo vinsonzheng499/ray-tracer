@@ -1,18 +1,27 @@
 #include "bvh.h"
+#include <iostream>
+
+using namespace std;
 
 extern bool debugMode;
 
-void BVHNode::build(std::vector<Geometry*>& geometries) {
+void BVHNode::build(std::vector<Geometry*>& geometries, int depth) {
+    cout << "depth: " << depth << endl;
     // Initialize node bounds
-    if (geometries.empty()) return;
+    if (geometries.empty()) {
+        cout << "Do I come here?" << endl;
+        return;
+    }
     
     bbox = geometries[0]->getBoundingBox();
     for (auto obj : geometries) {
+        cout << "for loop" << endl;
         bbox.merge(obj->getBoundingBox());
     }
 
     // If few enough objects, make this a leaf
-    if (geometries.size() <= maxObjectsPerLeaf) {
+    if (geometries.size() <= bvhLeafSize || depth >= bvhMaxDepth) {
+        cout << "leaf" << endl;
         objects = geometries;
         return;
     }
@@ -41,8 +50,8 @@ void BVHNode::build(std::vector<Geometry*>& geometries) {
     // Recursively build children
     left = new BVHNode();
     right = new BVHNode();
-    left->build(leftGeom);
-    right->build(rightGeom);
+    left->build(leftGeom, depth + 1);
+    right->build(rightGeom, depth + 1);
 }
 
 bool BVHNode::intersect(ray& r, isect& i) const {

@@ -153,8 +153,23 @@ TextureMap *Scene::getTexture(string name) {
   return itr->second.get();
 }
 
-void Scene::buildBVH() {
+void Scene::buildBVH(int bvhMaxDepth, int bvhLeafSize) {
   delete bvh;
-  bvh = new BVHNode();
-  bvh->build(objects);
+  bvh = new BVHNode(bvhMaxDepth, bvhLeafSize);
+  cout << objects.size() << endl;
+  cout << objects[0] << endl;
+  printGeometryList(objects);
+  bvh->build(objects, 0);
+}
+
+#include <typeinfo> // Required for typeid
+
+void Scene::printGeometryList(const std::vector<Geometry *> &objects) {
+    for (size_t i = 0; i < objects.size(); ++i) {
+        if (objects[i]) {
+            std::cout << "Object " << i << ": " << typeid(*objects[i]).name() << std::endl;
+        } else {
+            std::cout << "Object " << i << ": nullptr" << std::endl;
+        }
+    }
 }

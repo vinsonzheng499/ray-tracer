@@ -201,7 +201,9 @@ public:
 
   const BoundingBox &bounds() const { return sceneBounds; }
 
-  void buildBVH();
+  void buildBVH(int bvhMaxDepth, int bvhLeafSize);
+
+  void printGeometryList(const std::vector<Geometry *> &objects);
 
 
 private:

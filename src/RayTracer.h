@@ -71,6 +71,8 @@ private:
   int block_size;
   double aaThresh;
   int samples;
+  int bvhMaxDepth;
+  int bvhLeafSize;
 
   std::vector<std::thread> workerThreads;
   std::vector<bool> threadDone;
