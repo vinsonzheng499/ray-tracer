@@ -1,7 +1,7 @@
 #include <cmath>
 
 #include "../ui/TraceUI.h"
-#include "kdTree.h"
+#include "bvh.h"
 #include "light.h"
 #include "scene.h"
 #include <glm/gtx/extended_min_max.hpp>

@@ -1,4 +1,6 @@
-#include "kdTree.h"
+#include "bvh.h"
+
+extern bool debugMode;
 
 void BVHNode::build(std::vector<Geometry*>& geometries) {
     // Initialize node bounds
@@ -84,6 +86,6 @@ bool BVHNode::intersect(ray& r, isect& i) const {
             i = temp;  // Restore closest hit from first child
         }
     }
-    
+
     return hit;
 }
