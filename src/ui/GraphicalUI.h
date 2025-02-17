@@ -47,7 +47,7 @@ public:
 
   Fl_Check_Button *m_debuggingDisplayCheckButton;
   Fl_Check_Button *m_aaCheckButton;
-  Fl_Check_Button *m_kdCheckButton;
+  Fl_Check_Button *m_bvhCheckButton;
   Fl_Check_Button *m_cubeMapCheckButton;
   Fl_Check_Button *m_ssCheckButton;
   Fl_Check_Button *m_shCheckButton;
@@ -96,15 +96,15 @@ private:
   static void cb_aaThresholdSlides(Fl_Widget *o, void *v);
   static void cb_refreshSlides(Fl_Widget *o, void *v);
   static void cb_threadSlides(Fl_Widget *o, void *v);
-  static void cb_kdTreeDepthSlides(Fl_Widget *o, void *v);
-  static void cb_kdLeafSizeSlides(Fl_Widget *o, void *v);
+  static void cb_bvhTreeDepthSlides(Fl_Widget *o, void *v);
+  static void cb_bvhLeafSizeSlides(Fl_Widget *o, void *v);
   static void cb_filterSlides(Fl_Widget *o, void *v);
 
   static void cb_render(Fl_Widget *o, void *v);
   static void cb_stop(Fl_Widget *o, void *v);
   static void cb_debuggingDisplayCheckButton(Fl_Widget *o, void *v);
   static void cb_aaCheckButton(Fl_Widget *o, void *v);
-  static void cb_kdCheckButton(Fl_Widget *o, void *v);
+  static void cb_bvhCheckButton(Fl_Widget *o, void *v);
   static void cb_cubeMapCheckButton(Fl_Widget *o, void *v);
   static void cb_ssCheckButton(Fl_Widget *o, void *v);
   static void cb_shCheckButton(Fl_Widget *o, void *v);

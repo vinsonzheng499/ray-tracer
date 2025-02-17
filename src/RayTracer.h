@@ -78,6 +78,9 @@ private:
   std::mutex bufferMutex;
   std::atomic<int> completedPixels{0};
   bool renderingDone{false};
+
+  int bvhMaxDepth;
+  int bvhTargetLeafSize;
 };
 
 #endif // __RAYTRACER_H__

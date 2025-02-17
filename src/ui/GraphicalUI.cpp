@@ -166,12 +166,12 @@ void GraphicalUI::cb_aaThresholdSlides(Fl_Widget *o, void *) {
       int(((Fl_Slider *)o)->value());
 }
 
-void GraphicalUI::cb_kdTreeDepthSlides(Fl_Widget *o, void *) {
+void GraphicalUI::cb_bvhTreeDepthSlides(Fl_Widget *o, void *) {
   ((GraphicalUI *)(o->user_data()))->m_nTreeDepth =
       int(((Fl_Slider *)o)->value());
 }
 
-void GraphicalUI::cb_kdLeafSizeSlides(Fl_Widget *o, void *) {
+void GraphicalUI::cb_bvhLeafSizeSlides(Fl_Widget *o, void *) {
   ((GraphicalUI *)(o->user_data()))->m_nLeafSize =
       int(((Fl_Slider *)o)->value());
 }
@@ -220,10 +220,10 @@ void GraphicalUI::cb_aaCheckButton(Fl_Widget *o, void *) {
   }
 }
 
-void GraphicalUI::cb_kdCheckButton(Fl_Widget *o, void *) {
+void GraphicalUI::cb_bvhCheckButton(Fl_Widget *o, void *) {
   pUI = (GraphicalUI *)(o->user_data());
-  pUI->m_kdTree = (((Fl_Check_Button *)o)->value() == 1);
-  if (pUI->m_kdTree) {
+  pUI->m_bvhTree = (((Fl_Check_Button *)o)->value() == 1);
+  if (pUI->m_bvhTree) {
     pUI->m_treeDepthSlider->activate();
     pUI->m_leafSizeSlider->activate();
   } else {
@@ -589,7 +589,7 @@ GraphicalUI::GraphicalUI() : refreshInterval(10) {
   m_aaCheckButton->callback(cb_aaCheckButton);
   m_aaCheckButton->value(m_antiAlias);
 
-  // install kdmaxdepth slider
+  // install bvhmaxdepth slider
   m_treeDepthSlider = new Fl_Value_Slider(95, 277, 180, 20, "Max Depth");
   m_treeDepthSlider->user_data((void *)(this)); // record self to be used by
                                                 // static callback functions
@@ -601,11 +601,11 @@ GraphicalUI::GraphicalUI() : refreshInterval(10) {
   m_treeDepthSlider->step(1);
   m_treeDepthSlider->value(m_nTreeDepth);
   m_treeDepthSlider->align(FL_ALIGN_RIGHT);
-  m_treeDepthSlider->callback(cb_kdTreeDepthSlides);
-  if (!m_kdTree)
+  m_treeDepthSlider->callback(cb_bvhTreeDepthSlides);
+  if (!m_bvhTree)
     m_treeDepthSlider->deactivate();
 
-  // install kdleafsize slider
+  // install bvhleafsize slider
   m_leafSizeSlider = new Fl_Value_Slider(95, 309, 180, 20, "Target Leaf Size");
   m_leafSizeSlider->user_data((void *)(this)); // record self to be used by
                                                // static callback functions
@@ -617,8 +617,8 @@ GraphicalUI::GraphicalUI() : refreshInterval(10) {
   m_leafSizeSlider->step(1);
   m_leafSizeSlider->value(m_nLeafSize);
   m_leafSizeSlider->align(FL_ALIGN_RIGHT);
-  m_leafSizeSlider->callback(cb_kdLeafSizeSlides);
-  if (!m_kdTree)
+  m_leafSizeSlider->callback(cb_bvhLeafSizeSlides);
+  if (!m_bvhTree)
     m_leafSizeSlider->deactivate();
 
   // install cubemap filter width slider
@@ -637,11 +637,11 @@ GraphicalUI::GraphicalUI() : refreshInterval(10) {
   if (!m_usingCubeMap)
     m_filterSlider->deactivate();
 
-  // set up kdTree checkbox
-  m_kdCheckButton = new Fl_Check_Button(10, 293, 80, 20, "K-d Tree");
-  m_kdCheckButton->user_data((void *)(this));
-  m_kdCheckButton->callback(cb_kdCheckButton);
-  m_kdCheckButton->value(m_kdTree);
+  // set up bvhTree checkbox
+  m_bvhCheckButton = new Fl_Check_Button(10, 293, 80, 20, "BVH Tree");
+  m_bvhCheckButton->user_data((void *)(this));
+  m_bvhCheckButton->callback(cb_bvhCheckButton);
+  m_bvhCheckButton->value(m_bvhTree);
 
   // set up cubeMap checkbox
   m_cubeMapCheckButton = new Fl_Check_Button(10, 349, 80, 20, "CubeMap");
