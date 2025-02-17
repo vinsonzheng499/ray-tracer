@@ -1,3 +1,4 @@
+// trimesh.h
 #ifndef TRIMESH_H__
 #define TRIMESH_H__
 
@@ -31,18 +32,12 @@ class Trimesh : public SceneObject {
   BoundingBox localBounds;
 
 public:
-  Trimesh(Scene *scene, Material *mat, MatrixTransform transform)
-      : SceneObject(scene, mat), displayListWithMaterials(0),
-        displayListWithoutMaterials(0) {
-    this->transform = transform;
-    vertNorms = false;
-  }
+  Trimesh(Scene *scene, Material *mat, MatrixTransform transform);
+  ~Trimesh() override;
 
   bool vertNorms;
 
-  bool intersectLocal(ray &r, isect &i) const;
-
-  ~Trimesh();
+  bool intersectLocal(ray &r, isect &i) const override;
 
   // must add vertices, normals, and materials IN ORDER
   void addVertex(const glm::dvec3 &);
@@ -55,28 +50,23 @@ public:
 
   void generateNormals();
 
-  bool hasBoundingBoxCapability() const { return true; }
+  bool hasBoundingBoxCapability() const override { return true; }
 
-  BoundingBox ComputeLocalBoundingBox() {
-    BoundingBox localbounds;
-    if (vertices.size() == 0)
-      return localbounds;
-    localbounds.setMax(vertices[0]);
-    localbounds.setMin(vertices[0]);
-    Vertices::const_iterator viter;
-    for (viter = vertices.begin(); viter != vertices.end(); ++viter) {
-      localbounds.setMax(glm::max(localbounds.getMax(), *viter));
-      localbounds.setMin(glm::min(localbounds.getMin(), *viter));
-    }
-    localBounds = localbounds;
-    return localbounds;
-  }
+  BoundingBox ComputeLocalBoundingBox() override;
+
+  void buildFaceBVH(int maxDepth, int targetLeafSize);
+  void clearFaceBVH();
 
 protected:
   void glDrawLocal(int quality, bool actualMaterials,
-                   bool actualTextures) const;
+                   bool actualTextures) const override;
   mutable int displayListWithMaterials;
   mutable int displayListWithoutMaterials;
+
+private:
+    BVHTree<TrimeshFace> *faceBVH;
+    std::mutex facesMutex;
+    std::mutex verticesMutex;
 };
 
 /* A triangle in a mesh. This class looks and behaves a lot like other
@@ -98,33 +88,7 @@ class TrimeshFace {
   BoundingBox bounds;
 
 public:
-  TrimeshFace(Trimesh *parent, int a, int b, int c) {
-    this->parent = parent;
-    ids[0] = a;
-    ids[1] = b;
-    ids[2] = c;
-
-    // Compute the face normal here, not on the fly
-    glm::dvec3 a_coords = parent->vertices[a];
-    glm::dvec3 b_coords = parent->vertices[b];
-    glm::dvec3 c_coords = parent->vertices[c];
-
-    glm::dvec3 vab = (b_coords - a_coords);
-    glm::dvec3 vac = (c_coords - a_coords);
-    glm::dvec3 vcb = (b_coords - c_coords);
-
-    if (glm::length(vab) == 0.0 || glm::length(vac) == 0.0 ||
-        glm::length(vcb) == 0.0)
-      degen = true;
-    else {
-      degen = false;
-      normal = glm::cross(b_coords - a_coords, c_coords - a_coords);
-      normal = glm::normalize(normal);
-      dist = glm::dot(normal, a_coords);
-    }
-    localbounds = ComputeLocalBoundingBox();
-    bounds = localbounds;
-  }
+  TrimeshFace(Trimesh *parent, int a, int b, int c);
 
   BoundingBox localbounds;
   bool degen;
@@ -139,19 +103,7 @@ public:
 
   bool hasBoundingBoxCapability() const { return true; }
 
-  BoundingBox ComputeLocalBoundingBox() {
-    BoundingBox localbounds;
-    localbounds.setMax(
-        glm::max(parent->vertices[ids[0]], parent->vertices[ids[1]]));
-    localbounds.setMin(
-        glm::min(parent->vertices[ids[0]], parent->vertices[ids[1]]));
-
-    localbounds.setMax(
-        glm::max(parent->vertices[ids[2]], localbounds.getMax()));
-    localbounds.setMin(
-        glm::min(parent->vertices[ids[2]], localbounds.getMin()));
-    return localbounds;
-  }
+  BoundingBox ComputeLocalBoundingBox();
 
   const BoundingBox &getBoundingBox() const { return localbounds; }
 };

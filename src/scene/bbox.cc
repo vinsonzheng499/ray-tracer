@@ -1,5 +1,7 @@
+// bbox.cpp
 #include "bbox.h"
 #include "ray.h"
+#include <algorithm>
 
 BoundingBox::BoundingBox() : bEmpty(true) {}
 
@@ -95,4 +97,20 @@ void BoundingBox::merge(const BoundingBox &bBox) {
   }
   dirty = true;
   bEmpty = false;
+}
+
+int BoundingBox::longestAxis() const {
+  glm::dvec3 extent = bmax - bmin;
+  int longest = 0;
+  if (extent[1] > extent[0]) {
+    longest = 1;
+  }
+  if (extent[2] > extent[longest]) {
+    longest = 2;
+  }
+  return longest;
+}
+
+glm::dvec3 BoundingBox::centroid() const {
+    return (bmin + bmax) * 0.5;
 }

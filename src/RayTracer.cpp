@@ -1,7 +1,3 @@
-// The main ray tracer.
-
-#pragma warning(disable : 4786)
-
 #include "RayTracer.h"
 #include "scene/light.h"
 #include "scene/material.h"
@@ -132,21 +128,6 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
           glm::dvec3 offsetHitPoint = hitPoint - N * RAY_EPSILON;
           ray refractedRay(offsetHitPoint, T, r.getAtten(), ray::REFRACTION);
 
-          // // Entry point A
-          // glm::dvec3 A = refractedRay.at(i.getT());
-          // // Fire a new ray (r2) from slightly past A to find exit point B
-          // ray exitRay(A + T * RAY_EPSILON, T, r.getAtten(), ray::REFRACTION);
-          // isect exitIntersection;
-          // double d = 0.0;
-          // if (scene->intersect(exitRay, exitIntersection)) {
-          //   glm::dvec3 B = exitRay.at(exitIntersection.getT());
-          //   d = glm::abs(glm::distance(A, B));
-          // }
-          // if (entering) {
-          //   colorC += traceRay(refractedRay, thresh, depth - 1, t);
-          // } else {
-          //   colorC += glm::pow(m.kt(i), glm::dvec3(d)) * traceRay(refractedRay, thresh, depth - 1, t);
-          // }
           colorC += traceRay(refractedRay, thresh, depth - 1, t);
         }
       }
@@ -276,10 +257,14 @@ void RayTracer::traceSetup(int w, int h) {
   samples = traceUI->getSuperSamples();
   aaThresh = traceUI->getAaThreshold();
 
-  // YOUR CODE HERE
-  // FIXME: Additional initializations
   bvhMaxDepth = traceUI->getMaxDepth();
   bvhTargetLeafSize = traceUI->getLeafSize();
+
+  if (traceUI->bvhSwitch()) {
+    scene->buildBVH(bvhMaxDepth, bvhTargetLeafSize);
+  } else {
+    scene->clearBVH();
+  }
 }
 
 void RayTracer::workerThread(int threadId) {
@@ -349,28 +334,17 @@ void RayTracer::traceImage(int w, int h) {
 }
 
 int RayTracer::aaImage() {
-  // YOUR CODE HERE
-  // FIXME: Implement Anti-aliasing here
-  //
-  // TIP: samples and aaThresh have been synchronized with TraceUI by
-  //      RayTracer::traceSetup() function
   if (samples <= 1) {
       return 0; // No anti-aliasing needed
   }
 
-  // For each pixel
   for (int i = 0; i < buffer_width; i++) {
       for (int j = 0; j < buffer_height; j++) {
-          // Get the original pixel color
           glm::dvec3 originalColor = getPixel(i, j);
-          
-          // Check if anti-aliasing is needed for this pixel by comparing with neighbors
           bool needsAA = false;
           
-          // Check neighboring pixels
           for (int di = -1; di <= 1 && !needsAA; di++) {
               for (int dj = -1; dj <= 1; dj++) {
-                  // Skip the current pixel
                   if (di == 0 && dj == 0) continue;
 
                   int ni = i + di;
@@ -379,7 +353,6 @@ int RayTracer::aaImage() {
                   if (ni >= 0 && ni < buffer_width && nj >= 0 && nj < buffer_height) {
                       glm::dvec3 neighborColor = getPixel(ni, nj);
                       
-                      // If difference between pixel and neighbor exceeds threshold
                       if (glm::length(originalColor - neighborColor) > aaThresh) {
                           needsAA = true;
                           break;
@@ -391,25 +364,18 @@ int RayTracer::aaImage() {
           if (needsAA) {
               glm::dvec3 accumulatedColor(0.0);
               
-              // Supersampling grid
               for (int si = 0; si < samples; si++) {
                   for (int sj = 0; sj < samples; sj++) {
-                      // Calculate subpixel position.  Note that the offsets need to be within the range [0, 1].
-                      // For example if we have 4 samples per pixel (samples=4, pixels per dimension = 2),
-                      // then si and sj range from 0 to 3, and the offset becomes (si + 0.5) / 2 to keep the result inside [0,1]
                       double stratumSize = 1.0 / sqrt(samples);
                       double x = (i + (si * stratumSize + stratumSize/2.0)) / double(buffer_width);
                       double y = (j + (sj * stratumSize + stratumSize/2.0)) / double(buffer_height);
                       
-                      // Trace ray through subpixel
                       accumulatedColor += trace(x, y);
                   }
               }
               
-              // Average the accumulated colors
               glm::dvec3 finalColor = accumulatedColor / (double)(samples * samples);              
 
-              // Set the anti-aliased pixel
               setPixel(i, j, finalColor);
           }
       }
@@ -423,7 +389,6 @@ bool RayTracer::checkRender() {
       return true;
   }
   
-  // Check if all threads are done
   for (bool done : threadDone) {
       if (!done) return false;
   }
@@ -431,7 +396,6 @@ bool RayTracer::checkRender() {
 }
 
 void RayTracer::waitRender() {
-  // Join all threads
   for (auto& thread : workerThreads) {
       if (thread.joinable()) {
           thread.join();
