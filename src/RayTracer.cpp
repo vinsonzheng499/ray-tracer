@@ -278,6 +278,8 @@ void RayTracer::traceSetup(int w, int h) {
 
   // YOUR CODE HERE
   // FIXME: Additional initializations
+  bvhMaxDepth = traceUI->getMaxDepth();
+  bvhTargetLeafSize = traceUI->getLeafSize();
 }
 
 void RayTracer::workerThread(int threadId) {
