@@ -1,3 +1,4 @@
+// trimesh.cpp
 #include "trimesh.h"
 #include <algorithm>
 #include <assert.h>
@@ -5,14 +6,24 @@
 #include <float.h>
 #include <string.h>
 #include "../ui/TraceUI.h"
+#include <iostream>
 extern TraceUI *traceUI;
 extern TraceUI *traceUI;
 
 using namespace std;
 
+Trimesh::Trimesh(Scene *scene, Material *mat, MatrixTransform transform)
+    : SceneObject(scene, mat), displayListWithMaterials(0),
+      displayListWithoutMaterials(0) {
+  this->transform = transform;
+  vertNorms = false;
+  faceBVH = nullptr;
+}
+
 Trimesh::~Trimesh() {
   for (auto f : faces)
     delete f;
+  clearFaceBVH();
 }
 
 // must add vertices, normals, and materials IN ORDER
@@ -56,25 +67,101 @@ const char *Trimesh::doubleCheck() {
 }
 
 bool Trimesh::intersectLocal(ray &r, isect &i) const {
-  bool have_one = false;
-  for (auto face : faces) {
-    isect cur;
-    if (face->intersectLocal(r, cur)) {
-      if (!have_one || (cur.getT() < i.getT())) {
-        i = cur;
-        have_one = true;
+  if (faceBVH) {
+    return faceBVH->intersect(r, i);
+  } else { // If no BVH, do a brute-force intersection
+    bool have_one = false;
+    for (auto face : faces) {
+      isect cur;
+        if (face->intersectLocal(r, cur)) {
+          if (!have_one || (cur.getT() < i.getT())) {
+            i = cur;
+            have_one = true;
+          }
+        }
       }
-    }
+    if (!have_one)
+      i.setT(1000.0);
+    return have_one;
   }
-  if (!have_one)
-    i.setT(1000.0);
-  return have_one;
+}
+
+void Trimesh::buildFaceBVH(int maxDepth, int targetLeafSize) {
+  std::lock_guard<std::mutex> vlock(verticesMutex);
+  std::lock_guard<std::mutex> flock(facesMutex);
+  clearFaceBVH();
+  faceBVH = new BVHTree<TrimeshFace>(maxDepth, targetLeafSize);
+  std::cout << "Before buildFaceBVH" << std::endl; // Removing causes segfault
+  faceBVH->build(faces); // Build from the vector of TrimeshFace*
+}
+
+TrimeshFace::TrimeshFace(Trimesh *parent, int a, int b, int c) {
+  this->parent = parent;
+  ids[0] = a;
+  ids[1] = b;
+  ids[2] = c;
+
+  // Compute the face normal here, not on the fly
+  glm::dvec3 a_coords = parent->vertices[a];
+  glm::dvec3 b_coords = parent->vertices[b];
+  glm::dvec3 c_coords = parent->vertices[c];
+
+  glm::dvec3 vab = (b_coords - a_coords);
+  glm::dvec3 vac = (c_coords - a_coords);
+  glm::dvec3 vcb = (b_coords - c_coords);
+
+  if (glm::length(vab) == 0.0 || glm::length(vac) == 0.0 ||
+      glm::length(vcb) == 0.0)
+    degen = true;
+  else {
+    degen = false;
+    normal = glm::cross(b_coords - a_coords, c_coords - a_coords);
+    normal = glm::normalize(normal);
+    dist = glm::dot(normal, a_coords);
+  }
+  localbounds = ComputeLocalBoundingBox();
+  bounds = localbounds;
+}
+
+BoundingBox TrimeshFace::ComputeLocalBoundingBox() {
+  BoundingBox localbounds;
+  localbounds.setMax(
+      glm::max(parent->vertices[ids[0]], parent->vertices[ids[1]]));
+  localbounds.setMin(
+      glm::min(parent->vertices[ids[0]], parent->vertices[ids[1]]));
+
+  localbounds.setMax(
+      glm::max(parent->vertices[ids[2]], localbounds.getMax()));
+  localbounds.setMin(
+      glm::min(parent->vertices[ids[2]], localbounds.getMin()));
+  return localbounds;
 }
 
 bool TrimeshFace::intersect(ray &r, isect &i) const {
-  return intersectLocal(r, i);
+  // Transform the ray into the object's local coordinate space
+  glm::dvec3 pos = parent->transform.globalToLocalCoords(r.getPosition());
+  glm::dvec3 dir =
+      parent->transform.globalToLocalCoords(r.getPosition() + r.getDirection()) - pos;
+  double length = glm::length(dir);
+  dir = glm::normalize(dir);
+  // Backup World pos/dir, and switch to local pos/dir
+  glm::dvec3 Wpos = r.getPosition();
+  glm::dvec3 Wdir = r.getDirection();
+  r.setPosition(pos);
+  r.setDirection(dir);
+  bool rtrn = false;
+  if (intersectLocal(r, i)) {
+    // Transform the intersection point & normal returned back into
+    // global space.
+    i.setN(parent->transform.localToGlobalCoordsNormal(i.getN()));
+    i.setT(i.getT() / length);
+    rtrn = true;
+  }
+  // Restore World pos/dir
+  r.setPosition(Wpos);
+  r.setDirection(Wdir);
+  return rtrn;
 }
-
 
 // Intersect ray r with the triangle abc.  If it hits returns true,
 // and put the parameter in t and the barycentric coordinates of the
@@ -91,15 +178,15 @@ bool TrimeshFace::intersectLocal(ray &r, isect &i) const {
      - Otherwise, if the parent mesh has non-empty `vertexColors`,
        barycentrically interpolate the colors from the three vertices of the
        face. Create a new material by copying the parent's material, set the
-       diffuse color of this material to the interpolated color, and then 
+       diffuse color of this material to the interpolated color, and then
        assign this material to the intersection.
      - If neither is true, assign the parent's material to the intersection.
   */
 
   glm::dvec3 v0 = parent->vertices[ids[0]];
   glm::dvec3 v1 = parent->vertices[ids[1]];
-  glm::dvec3 v2 = parent->vertices[ids[2]]; 
-  
+  glm::dvec3 v2 = parent->vertices[ids[2]];
+
   // Ray Plane Intersection
   double T = glm::dot(v0 - r.getPosition(), normal) / glm::dot(r.getDirection(), normal);
 
@@ -108,7 +195,7 @@ bool TrimeshFace::intersectLocal(ray &r, isect &i) const {
   }
 
   glm::dvec3 p = r.getPosition() + T * r.getDirection();
-  
+
   glm::dvec3 AB = v1 - v0;
   glm::dvec3 AP = p - v0;
   glm::dvec3 BC = v2 - v1;
@@ -199,3 +286,24 @@ void Trimesh::generateNormals() {
   vertNorms = true;
 }
 
+BoundingBox Trimesh::ComputeLocalBoundingBox() {
+  BoundingBox localbounds;
+  if (vertices.size() == 0)
+    return localbounds;
+  localbounds.setMax(vertices[0]);
+  localbounds.setMin(vertices[0]);
+  Vertices::const_iterator viter;
+  for (viter = vertices.begin(); viter != vertices.end(); ++viter) {
+    localbounds.setMax(glm::max(localbounds.getMax(), *viter));
+    localbounds.setMin(glm::min(localbounds.getMin(), *viter));
+  }
+  localBounds = localbounds;
+  return localbounds;  
+}
+
+void Trimesh::clearFaceBVH() {
+  if (faceBVH) {
+    delete faceBVH;
+    faceBVH = nullptr;
+  }
+}

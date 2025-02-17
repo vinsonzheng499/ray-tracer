@@ -199,6 +199,9 @@ public:
 
   const BoundingBox &bounds() const { return sceneBounds; }
 
+  bool hasBVH() const { return bvhTree != nullptr; }
+  void buildBVH(int maxDepth, int targetLeafSize);
+  void clearBVH();
 
 private:
   /* Do not try to access these members directly. If you need to iterate
@@ -227,9 +230,10 @@ private:
   // hasBoundingBoxCapability() are exempt from this requirement.
   BoundingBox sceneBounds;
 
-  BVHTree<Geometry> *bvhTree;
+  BVHTree<Geometry> *bvhTree = nullptr;
 
   mutable std::mutex intersectionCacheMutex;
+  std::mutex objectsMutex;  
 
 public:
   // This is used for debugging purposes only.

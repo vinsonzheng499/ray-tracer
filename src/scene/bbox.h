@@ -1,3 +1,4 @@
+// bbox.h
 #pragma once
 
 #include <glm/vec3.hpp>
@@ -59,4 +60,6 @@ public:
   double area();
   double volume();
   void merge(const BoundingBox &bBox);
+  int longestAxis() const;
+  glm::dvec3 centroid() const;
 };

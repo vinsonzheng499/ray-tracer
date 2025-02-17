@@ -4,6 +4,7 @@
 #include "bvhTree.h"
 #include "light.h"
 #include "scene.h"
+#include "../SceneObjects/trimesh.h"
 #include <glm/gtx/extended_min_max.hpp>
 #include <glm/gtx/io.hpp>
 #include <iostream>
@@ -98,6 +99,7 @@ Scene::~Scene() {
     delete obj;
   for (auto &light : lights)
     delete light;
+  clearBVH();
 }
 
 void Scene::add(Geometry *obj) {
@@ -108,29 +110,32 @@ void Scene::add(Geometry *obj) {
 
 void Scene::add(Light *light) { lights.emplace_back(light); }
 
-
 // Get any intersection with an object.  Return information about the
 // intersection through the reference parameter.
 bool Scene::intersect(ray &r, isect &i) const {
-  double tmin = 0.0;
-  double tmax = 0.0;
-  bool have_one = false;
-  for (const auto &obj : objects) {
-    isect cur;
-    if (obj->intersect(r, cur)) {
-      if (!have_one || (cur.getT() < i.getT())) {
-        i = cur;
-        have_one = true;
+  if (bvhTree) {
+    return bvhTree->intersect(r, i);
+  } else {
+    double tmin = 0.0;
+    double tmax = 0.0;
+    bool have_one = false;
+    for (const auto &obj : objects) {
+      isect cur;
+      if (obj->intersect(r, cur)) {
+        if (!have_one || (cur.getT() < i.getT())) {
+          i = cur;
+          have_one = true;
+        }
       }
     }
+    if (!have_one)
+      i.setT(1000.0);
+    // if debugging,
+    if (TraceUI::m_debug) {
+      addToIntersectCache(std::make_pair(new ray(r), new isect(i)));
+    }
+    return have_one;
   }
-  if (!have_one)
-    i.setT(1000.0);
-  // if debugging,
-  if (TraceUI::m_debug) {
-    addToIntersectCache(std::make_pair(new ray(r), new isect(i)));
-  }
-  return have_one;
 }
 
 TextureMap *Scene::getTexture(string name) {
@@ -140,4 +145,32 @@ TextureMap *Scene::getTexture(string name) {
     return textureCache[name].get();
   }
   return itr->second.get();
+}
+
+void Scene::buildBVH(int maxDepth, int targetLeafSize) {
+  std::lock_guard<std::mutex> lock(objectsMutex);
+  clearBVH();
+  bvhTree = new BVHTree<Geometry>(maxDepth, targetLeafSize);
+  cout << "After BVHTree constructor" << endl; // Removing causes segfault
+  bvhTree->build(objects);
+
+  // Build BVH for Trimesh faces
+  for (Geometry* obj : objects) {
+    if (Trimesh* trimesh = dynamic_cast<Trimesh*>(obj)) {
+      trimesh->buildFaceBVH(maxDepth, targetLeafSize);
+    }
+  }
+}
+
+void Scene::clearBVH() {
+  if (bvhTree) {
+    delete bvhTree;
+    // Delete trimesh face BVH
+    for (Geometry* obj : objects) {
+      if (Trimesh* trimesh = dynamic_cast<Trimesh*>(obj)) {
+        trimesh->clearFaceBVH();
+      }
+    }   
+    bvhTree = nullptr;
+  }
 }
