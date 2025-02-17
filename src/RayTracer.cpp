@@ -105,17 +105,22 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
       glm::dvec3 R = glm::normalize(glm::reflect(D, N));
       glm::dvec3 hitPoint = r.at(i);
       bool entering = (glm::dot(D, N) < 0.0);
+
+      if (!entering) {
+        N = -N;
+      }
       glm::dvec3 offsetHitPoint = hitPoint + N * RAY_EPSILON;
 
-      if (debugMode) {
-        cout << m.Refl() << endl;
-        cout << "hitPoint: " << hitPoint << endl;
-        cout << "D: " << D << endl;
-        cout << "N: " << N << endl;
-        cout << "R: " << R << endl;
-      }
+      // if (debugMode) {
+      //   cout << m.Refl() << endl;
+      //   cout << m.Trans() << endl;
+      //   cout << "hitPoint: " << hitPoint << endl;
+      //   cout << "D: " << D << endl;
+      //   cout << "N: " << N << endl;
+      //   cout << "R: " << R << endl;
+      // }
 
-      if (m.Refl() && entering) {
+      if (m.Refl()) {
         ray reflectedRay(offsetHitPoint, R, r.getAtten(), ray::REFLECTION);
         glm::dvec3 transmittance = glm::dvec3(1.0, 1.0, 1.0);
         if (!entering && m.Trans()) {
@@ -125,13 +130,6 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
         colorC += transmittance * m.kr(i) * traceRay(reflectedRay, thresh, depth - 1, t);
       }
 
-      // if (debugMode) {
-      //   cout << "refracting" << endl;
-      //   cout << m.Trans() << endl;
-      //   cout << "hitPoint: " << hitPoint << endl;
-      //   cout << "D: " << D << endl;
-      //   cout << "N: " << N << endl;
-      // }
       // refraction
       if (m.Trans()) {
         double n1 = 1.0;
@@ -139,23 +137,19 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
 
         // If we're inside the refracting material
         if (!entering) {
-          N = -N;
           swap(n1, n2);
-          offsetHitPoint = hitPoint + N * RAY_EPSILON;
         }
 
         double eta = n1 / n2;
         glm::dvec3 T = glm::normalize(glm::refract(D, N, eta));
 
-        if (debugMode) {
-          cout << "D: " << D << endl;
-          cout << "N: " << N << endl;
-          cout << "n1: " << n1 << endl;
-          cout << "n2: " << n2 << endl;
-          cout << "eta: " << eta << endl;
-          cout << "T: " << T << endl;
-          cout << endl;
-        }
+        // if (debugMode) {
+        //   cout << "n1: " << n1 << endl;
+        //   cout << "n2: " << n2 << endl;
+        //   cout << "eta: " << eta << endl;
+        //   cout << "T: " << T << endl;
+        //   cout << endl;
+        // }
 
         if (glm::length(T) > 0.0) {
           // Normal refraction, otherwise TIR and we already shot a reflection ray
