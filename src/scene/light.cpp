@@ -43,6 +43,9 @@ glm::dvec3 DirectionalLight::shadowAttenuation(const ray &r, const glm::dvec3 &p
         glm::dvec3 D = glm::normalize(shadowRay.getDirection());
         glm::dvec3 N = glm::normalize(i.getN());
         bool entering = (glm::dot(D, N) < 0.0);
+        if (entering) {
+          N = -N;
+        }
 
         // if (debugMode) {
         //   cout << "N: " << N << endl;
@@ -50,7 +53,7 @@ glm::dvec3 DirectionalLight::shadowAttenuation(const ray &r, const glm::dvec3 &p
         //   cout << "D: " << D << endl;
         // }
 
-        double d = glm::distance(shadowRay.getPosition() + D * RAY_EPSILON, shadowRay.at(i.getT()));
+        double d = glm::distance(shadowRay.getPosition(), shadowRay.at(i.getT()));
         // if (debugMode){
         //   cout << "shadow d: " << d << endl; 
         //   cout << endl;
@@ -58,7 +61,7 @@ glm::dvec3 DirectionalLight::shadowAttenuation(const ray &r, const glm::dvec3 &p
         if (!entering) {
           attenuation *= glm::pow(m.kt(i), glm::dvec3(d));
         }
-        glm::dvec3 newOrigin = shadowRay.at(i.getT()) + RAY_EPSILON * (entering ? -N : N);
+        glm::dvec3 newOrigin = shadowRay.at(i.getT()) + RAY_EPSILON * N;
         shadowRay = ray(newOrigin, D, attenuation, ray::SHADOW);
     }
 
@@ -93,23 +96,16 @@ glm::dvec3 PointLight::getDirection(const glm::dvec3 &P) const {
 
 glm::dvec3 PointLight::shadowAttenuation(const ray &r, const glm::dvec3 &p) const {
     glm::dvec3 attenuation(1.0, 1.0, 1.0);
-    ray shadowRay = ray(p + getDirection(p) * RAY_EPSILON, getDirection(p), r.getAtten(), ray::SHADOW);
+    glm::dvec3 D = glm::normalize(getDirection(p));
+    ray shadowRay = ray(p + D * RAY_EPSILON, D, r.getAtten(), ray::SHADOW);
     isect i;
     
     while (scene->intersect(shadowRay, i)) {  
-        // if (debugMode) {
-        //   std::cout << std::fixed << std::setprecision(8);
-        //   cout << "point light" << endl;
-        //   cout << "p " << p << endl;
-        //   cout << "getDirection(p)" << getDirection(p) << endl;
-        //   cout << "p + getDirection(p) * RAY_EPSILON " << p + getDirection(p) * RAY_EPSILON << endl;
-        //   cout << "shadowRay intersection " << shadowRay.at(i.getT()) << endl;
-        // }
         // Check if intersection is beyond the light source
         if (i.getT() > glm::distance(p, position)) {
             break;
         }
-        
+
         const Material &m = i.getMaterial();
         
         if (!m.Trans()) {
@@ -119,9 +115,19 @@ glm::dvec3 PointLight::shadowAttenuation(const ray &r, const glm::dvec3 &p) cons
             return glm::dvec3(0.0, 0.0, 0.0);
         }
 
-        glm::dvec3 D = glm::normalize(shadowRay.getDirection());
+        D = glm::normalize(getDirection(shadowRay.getPosition()));
         glm::dvec3 N = glm::normalize(i.getN());
         bool entering = (glm::dot(D, N) < 0.0);
+        if (entering) {
+          N = -N;
+        }
+
+        if (debugMode) {
+          cout << "shadow ray origin: " << shadowRay.getPosition() << endl;
+          cout << "shadow ray direction" << shadowRay.getDirection() << endl;
+          cout << "shadow ray intersection " << shadowRay.at(i.getT()) << endl;
+        }
+        
 
         // if (debugMode) {
         //   cout << "N: " << N << endl;
@@ -129,15 +135,15 @@ glm::dvec3 PointLight::shadowAttenuation(const ray &r, const glm::dvec3 &p) cons
         //   cout << "D: " << D << endl;
         // }
 
-        double d = glm::distance(shadowRay.getPosition() + D * RAY_EPSILON, shadowRay.at(i.getT()));
-        // if (debugMode){
-        //   cout << "shadow d: " << d << endl; 
-        //   cout << endl;
-        // }
+        double d = glm::distance(shadowRay.getPosition(), shadowRay.at(i.getT()));
+        if (debugMode){
+          cout << "shadow d: " << d << endl; 
+          cout << endl;
+        }
         if (!entering) {
           attenuation *= glm::pow(m.kt(i), glm::dvec3(d));
         }
-        glm::dvec3 newOrigin = shadowRay.at(i.getT()) + RAY_EPSILON * (entering ? -N : N);
+        glm::dvec3 newOrigin = shadowRay.at(i.getT()) + RAY_EPSILON * D;
         shadowRay = ray(newOrigin, D, attenuation, ray::SHADOW);
     }
 
