@@ -148,7 +148,6 @@ TextureMap *Scene::getTexture(string name) {
 }
 
 void Scene::buildBVH(int maxDepth, int targetLeafSize) {
-  std::lock_guard<std::mutex> lock(objectsMutex);
   clearBVH();
   bvhTree = new BVHTree<Geometry>(maxDepth, targetLeafSize);
   cout << "After BVHTree constructor" << endl; // Removing causes segfault

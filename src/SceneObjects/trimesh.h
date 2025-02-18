@@ -65,8 +65,6 @@ protected:
 
 private:
     BVHTree<TrimeshFace> *faceBVH;
-    std::mutex facesMutex;
-    std::mutex verticesMutex;
 };
 
 /* A triangle in a mesh. This class looks and behaves a lot like other
