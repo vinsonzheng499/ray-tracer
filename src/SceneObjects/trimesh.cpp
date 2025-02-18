@@ -87,8 +87,6 @@ bool Trimesh::intersectLocal(ray &r, isect &i) const {
 }
 
 void Trimesh::buildFaceBVH(int maxDepth, int targetLeafSize) {
-  std::lock_guard<std::mutex> vlock(verticesMutex);
-  std::lock_guard<std::mutex> flock(facesMutex);
   clearFaceBVH();
   faceBVH = new BVHTree<TrimeshFace>(maxDepth, targetLeafSize);
   std::cout << "Before buildFaceBVH" << std::endl; // Removing causes segfault

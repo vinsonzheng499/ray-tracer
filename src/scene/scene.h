@@ -233,7 +233,6 @@ private:
   BVHTree<Geometry> *bvhTree = nullptr;
 
   mutable std::mutex intersectionCacheMutex;
-  std::mutex objectsMutex;  
 
 public:
   // This is used for debugging purposes only.
