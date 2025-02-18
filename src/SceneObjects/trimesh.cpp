@@ -89,7 +89,6 @@ bool Trimesh::intersectLocal(ray &r, isect &i) const {
 void Trimesh::buildFaceBVH(int maxDepth, int targetLeafSize) {
   clearFaceBVH();
   faceBVH = new BVHTree<TrimeshFace>(maxDepth, targetLeafSize);
-  std::cout << "Before buildFaceBVH" << std::endl; // Removing causes segfault
   faceBVH->build(faces); // Build from the vector of TrimeshFace*
 }
 

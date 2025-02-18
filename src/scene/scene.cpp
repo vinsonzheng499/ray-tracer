@@ -150,12 +150,12 @@ TextureMap *Scene::getTexture(string name) {
 void Scene::buildBVH(int maxDepth, int targetLeafSize) {
   clearBVH();
   bvhTree = new BVHTree<Geometry>(maxDepth, targetLeafSize);
-  cout << "After BVHTree constructor" << endl; // Removing causes segfault
   bvhTree->build(objects);
 
   // Build BVH for Trimesh faces
   for (Geometry* obj : objects) {
-    if (Trimesh* trimesh = dynamic_cast<Trimesh*>(obj)) {
+    Trimesh* trimesh = dynamic_cast<Trimesh*>(obj);
+    if (trimesh) {
       trimesh->buildFaceBVH(maxDepth, targetLeafSize);
     }
   }
@@ -164,12 +164,6 @@ void Scene::buildBVH(int maxDepth, int targetLeafSize) {
 void Scene::clearBVH() {
   if (bvhTree) {
     delete bvhTree;
-    // Delete trimesh face BVH
-    for (Geometry* obj : objects) {
-      if (Trimesh* trimesh = dynamic_cast<Trimesh*>(obj)) {
-        trimesh->clearFaceBVH();
-      }
-    }   
     bvhTree = nullptr;
   }
 }
