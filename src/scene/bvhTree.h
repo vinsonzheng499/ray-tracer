@@ -1,9 +1,11 @@
 // bvhTree.h
+
 #pragma once
 
 #include "bbox.h"
 #include "scene.h"
 #include <algorithm>
+#include <memory>  // Include for unique_ptr
 #include <vector>
 #include <iostream>
 
@@ -20,51 +22,37 @@ public:
 private:
   struct BVHNode {
     BoundingBox bbox;
-    BVHNode *left;
-    BVHNode *right;
+    std::unique_ptr<BVHNode> left;
+    std::unique_ptr<BVHNode> right;
     std::vector<Obj *> objects;
 
-    BVHNode() : left(nullptr), right(nullptr) {}
-    ~BVHNode();
+    BVHNode() = default; // Use default constructor
+    ~BVHNode() = default; // Let unique_ptr handle deletion
   };
 
-  BVHNode *root;
+  std::unique_ptr<BVHNode> root; // Use unique_ptr for root
   int maxDepth;
   int targetLeafSize;
 
-  BVHNode *buildRecursive(std::vector<Obj *> &objects, int depth);
+  std::unique_ptr<BVHNode> buildRecursive(std::vector<Obj *> &objects,
+                                             int depth);
   bool intersectRecursive(BVHNode *node, ray &r, isect &i) const;
 
   int partitionObjects(std::vector<Obj *> &objects, int axis);
 };
 
-template <typename Obj> BVHTree<Obj>::~BVHTree() {
-  if (root) {
-    delete root;
-  }
-}
-
-template <typename Obj> BVHTree<Obj>::BVHNode::~BVHNode() {
-  if (left) {
-    delete left;
-  }
-  if (right) {
-    delete right;
-  }
-}
+template <typename Obj> BVHTree<Obj>::~BVHTree() = default; // Use default destructor
 
 template <typename Obj>
 void BVHTree<Obj>::build(std::vector<Obj *> &objects) {
-  if (root) {
-    delete root;
-  }
   root = buildRecursive(objects, 0);
 }
 
 template <typename Obj>
-typename BVHTree<Obj>::BVHNode *
+std::unique_ptr<typename BVHTree<Obj>::BVHNode>
 BVHTree<Obj>::buildRecursive(std::vector<Obj *> &objects, int depth) {
-  BVHNode *node = new BVHNode();
+  std::unique_ptr<BVHNode> node = std::make_unique<BVHNode>(); // Use make_unique
+
   node->objects = objects;
 
   // Calculate bounding box for the objects in this node
@@ -119,7 +107,7 @@ template <typename Obj>
 bool BVHTree<Obj>::intersect(ray &r, isect &i) const {
   if (!root)
     return false;
-  return intersectRecursive(root, r, i);
+  return intersectRecursive(root.get(), r, i);
 }
 
 template <typename Obj>
@@ -135,11 +123,11 @@ bool BVHTree<Obj>::intersectRecursive(BVHNode *node, ray &r, isect &i) const {
     bool hitRight = false;
 
     if (node->left) {
-      hitLeft = intersectRecursive(node->left, r, i);
+      hitLeft = intersectRecursive(node->left.get(), r, i);
     }
 
     if (node->right) {
-      hitRight = intersectRecursive(node->right, r, i);
+      hitRight = intersectRecursive(node->right.get(), r, i);
     }
 
     return hitLeft || hitRight;
