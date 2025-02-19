@@ -104,6 +104,9 @@ public:
   BoundingBox ComputeLocalBoundingBox();
 
   const BoundingBox &getBoundingBox() const { return localbounds; }
+
+private:
+  MatrixTransform transform;
 };
 
 #endif // TRIMESH_H__
