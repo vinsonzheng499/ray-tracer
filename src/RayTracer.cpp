@@ -174,7 +174,19 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
     //       Check traceUI->cubeMap() to see if cubeMap is loaded
     //       and enabled.
 
-    colorC = glm::dvec3(0.0, 0.0, 0.0);
+    // No intersection - check for cube map
+    if (traceUI->cubeMap()) {
+      // Get the cube map and sample it using the ray
+      CubeMap* cubeMap = traceUI->getCubeMap();
+      if (cubeMap) {
+        colorC = cubeMap->getColor(r);
+      } else {
+        colorC = glm::dvec3(0.0, 0.0, 0.0);
+      }
+    } else {
+      // No cube map - use black background
+      colorC = glm::dvec3(0.0, 0.0, 0.0);
+    }
   }
 #if VERBOSE
   std::cerr << "== depth: " << depth + 1 << " done, returning: " << colorC
