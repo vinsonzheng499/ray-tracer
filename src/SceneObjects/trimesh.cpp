@@ -134,12 +134,7 @@ BoundingBox TrimeshFace::ComputeLocalBoundingBox() {
 }
 
 bool TrimeshFace::intersect(ray &r, isect &i) const {
-  bool rtrn = false;
-  if (intersectLocal(r, i)) {
-      i.setN(parent->transform.localToGlobalCoordsNormal(i.getN()));
-      rtrn = true;
-  }
-  return rtrn;
+  return intersectLocal(r, i);
 }
 
 // Intersect ray r with the triangle abc.  If it hits returns true,
