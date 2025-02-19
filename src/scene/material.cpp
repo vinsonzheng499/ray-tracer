@@ -93,7 +93,32 @@ glm::dvec3 TextureMap::getMappedValue(const glm::dvec2 &coord) const {
   // and use these to perform bilinear interpolation
   // of the values.
 
-  return glm::dvec3(1, 1, 1);
+  // Convert from UV coordinates [0,1] to texture space coordinates
+  double u = coord.x * (width - 1);
+  double v = coord.y * (height - 1);
+  
+  // Get the four nearest texel coordinates
+  int u1 = static_cast<int>(floor(u));
+  int v1 = static_cast<int>(floor(v));
+  int u2 = u1 + 1;
+  int v2 = v1 + 1;
+  
+  // Calculate α and β
+  double alpha = u - u1;
+  double beta = v - v1;
+  
+  // Get the four corner colors
+  glm::dvec3 c11 = getPixelAt(u1, v1); // Bottom-left
+  glm::dvec3 c21 = getPixelAt(u2, v1); // Bottom-right
+  glm::dvec3 c12 = getPixelAt(u1, v2); // Top-left
+  glm::dvec3 c22 = getPixelAt(u2, v2); // Top-right
+  
+  // Interpolate along bottom edge
+  glm::dvec3 bottom = (1.0 - alpha) * c11 + alpha * c21;
+  // Interpolate along top edge
+  glm::dvec3 top = (1.0 - alpha) * c12 + alpha * c22;
+  // Interpolate between top and bottom
+  return (1.0 - beta) * bottom + beta * top;
 }
 
 glm::dvec3 TextureMap::getPixelAt(int x, int y) const {
@@ -102,7 +127,20 @@ glm::dvec3 TextureMap::getPixelAt(int x, int y) const {
   // In order to add texture mapping support to the
   // raytracer, you need to implement this function.
 
-  return glm::dvec3(1, 1, 1);
+  // Clamp coordinates to valid range
+  x = glm::clamp(x, 0, width - 1);
+  y = glm::clamp(y, 0, height - 1);
+  
+  // Calculate the starting index in the data array for this pixel
+  // Each pixel has 3 components (R,G,B) stored as uint8_t
+  int index = 3 * (y * width + x);
+  
+  // Convert from 0-255 range to 0.0-1.0 range
+  return glm::dvec3(
+      data[index] / 255.0,
+      data[index + 1] / 255.0,
+      data[index + 2] / 255.0
+  );
 }
 
 glm::dvec3 MaterialParameter::value(const isect &is) const {
