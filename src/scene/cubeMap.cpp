@@ -49,17 +49,17 @@ glm::dvec3 CubeMap::getColor(ray r) const {
   }
   // Front face: +z (looking from +z direction)
   else if (dir.z > 0) {
-    faceIndex = 4;  // zpos
+    faceIndex = 5;  // zpos
     maxAxis = absZ;
     u = dir.x;
     v = -dir.y;
   }
   // Back face: -z
   else {
-    faceIndex = 5;  // zneg
+    faceIndex = 4;  // zneg
     maxAxis = absZ;
-    u = -dir.x;
-    v = -dir.y;
+    u = dir.x;
+    v = dir.y;
   }
   
   // Check if we have a texture map for this face
