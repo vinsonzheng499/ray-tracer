@@ -91,16 +91,27 @@ BVHTree<Obj>::buildRecursive(std::vector<Obj *> &objects, int depth) {
 
 template <typename Obj>
 int BVHTree<Obj>::partitionObjects(std::vector<Obj *> &objects, int axis) {
-  // Sort objects along the chosen axis using a lambda for comparison
-  std::sort(objects.begin(), objects.end(),
-            [axis](const Obj *a, const Obj *b) {
-              glm::dvec3 centroidA = a->getBoundingBox().centroid();
-              glm::dvec3 centroidB = b->getBoundingBox().centroid();
-              return centroidA[axis] < centroidB[axis];
-            });
+    // Calculate the median centroid value
+    double median;
+    size_t size = objects.size();
+    if (size % 2 == 0) {
+        // Even number of elements, average the two middle ones
+        glm::dvec3 centroid1 = objects[size / 2 - 1]->getBoundingBox().centroid();
+        glm::dvec3 centroid2 = objects[size / 2]->getBoundingBox().centroid();
+        median = (centroid1[axis] + centroid2[axis]) / 2.0;
+    } else {
+        // Odd number of elements, take the middle one
+        median = objects[size / 2]->getBoundingBox().centroid()[axis];
+    }
 
-  // Return the midpoint index as the split point
-  return objects.size() / 2;
+    // Partition the objects around the median value using std::partition
+    auto it = std::partition(objects.begin(), objects.end(),
+        [axis, median](const Obj* obj) {
+            return obj->getBoundingBox().centroid()[axis] < median;
+        });
+
+    // The distance from the beginning to the iterator is the number of elements in the left partition
+    return std::distance(objects.begin(), it);
 }
 
 template <typename Obj>

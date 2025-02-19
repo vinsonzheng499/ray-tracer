@@ -92,7 +92,7 @@ void Trimesh::buildFaceBVH(int maxDepth, int targetLeafSize) {
   faceBVH->build(faces); // Build from the vector of TrimeshFace*
 }
 
-TrimeshFace::TrimeshFace(Trimesh *parent, int a, int b, int c) {
+TrimeshFace::TrimeshFace(Trimesh *parent, int a, int b, int c) : transform(parent->transform) {
   this->parent = parent;
   ids[0] = a;
   ids[1] = b;
@@ -122,41 +122,23 @@ TrimeshFace::TrimeshFace(Trimesh *parent, int a, int b, int c) {
 
 BoundingBox TrimeshFace::ComputeLocalBoundingBox() {
   BoundingBox localbounds;
-  localbounds.setMax(
-      glm::max(parent->vertices[ids[0]], parent->vertices[ids[1]]));
-  localbounds.setMin(
-      glm::min(parent->vertices[ids[0]], parent->vertices[ids[1]]));
 
-  localbounds.setMax(
-      glm::max(parent->vertices[ids[2]], localbounds.getMax()));
-  localbounds.setMin(
-      glm::min(parent->vertices[ids[2]], localbounds.getMin()));
+  glm::dvec3 v0 = parent->vertices[ids[0]];
+  glm::dvec3 v1 = parent->vertices[ids[1]];
+  glm::dvec3 v2 = parent->vertices[ids[2]];
+
+  localbounds.setMax(glm::max(glm::max(v0, v1), v2));
+  localbounds.setMin(glm::min(glm::min(v0, v1), v2));
+
   return localbounds;
 }
 
 bool TrimeshFace::intersect(ray &r, isect &i) const {
-  // Transform the ray into the object's local coordinate space
-  glm::dvec3 pos = parent->transform.globalToLocalCoords(r.getPosition());
-  glm::dvec3 dir =
-      parent->transform.globalToLocalCoords(r.getPosition() + r.getDirection()) - pos;
-  double length = glm::length(dir);
-  dir = glm::normalize(dir);
-  // Backup World pos/dir, and switch to local pos/dir
-  glm::dvec3 Wpos = r.getPosition();
-  glm::dvec3 Wdir = r.getDirection();
-  r.setPosition(pos);
-  r.setDirection(dir);
   bool rtrn = false;
   if (intersectLocal(r, i)) {
-    // Transform the intersection point & normal returned back into
-    // global space.
-    i.setN(parent->transform.localToGlobalCoordsNormal(i.getN()));
-    i.setT(i.getT() / length);
-    rtrn = true;
+      i.setN(parent->transform.localToGlobalCoordsNormal(i.getN()));
+      rtrn = true;
   }
-  // Restore World pos/dir
-  r.setPosition(Wpos);
-  r.setDirection(Wdir);
   return rtrn;
 }
 
@@ -231,9 +213,9 @@ bool TrimeshFace::intersectLocal(ray &r, isect &i) const {
 
         glm::dvec3 interpolatedColor = alpha * colorA + beta * colorB + gamma * colorC;
 
-        Material* newMat = new Material(parent->getMaterial());
-        newMat->setDiffuse(interpolatedColor);
-        i.setMaterial(*newMat);
+        Material newMat = parent->getMaterial();
+        newMat.setDiffuse(interpolatedColor);
+        i.setMaterial(newMat);
     }
     else {
       i.setMaterial(parent->getMaterial());
