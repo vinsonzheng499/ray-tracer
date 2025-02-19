@@ -91,27 +91,42 @@ BVHTree<Obj>::buildRecursive(std::vector<Obj *> &objects, int depth) {
 
 template <typename Obj>
 int BVHTree<Obj>::partitionObjects(std::vector<Obj *> &objects, int axis) {
-    // Calculate the median centroid value
-    double median;
-    size_t size = objects.size();
-    if (size % 2 == 0) {
-        // Even number of elements, average the two middle ones
-        glm::dvec3 centroid1 = objects[size / 2 - 1]->getBoundingBox().centroid();
-        glm::dvec3 centroid2 = objects[size / 2]->getBoundingBox().centroid();
-        median = (centroid1[axis] + centroid2[axis]) / 2.0;
-    } else {
-        // Odd number of elements, take the middle one
-        median = objects[size / 2]->getBoundingBox().centroid()[axis];
+    if (objects.size() <= 1) return 0;
+    
+    // Calculate centroids and find the split position
+    std::vector<double> centroids;
+    centroids.reserve(objects.size());
+    for (const auto& obj : objects) {
+        centroids.push_back(obj->getBoundingBox().centroid()[axis]);
     }
-
-    // Partition the objects around the median value using std::partition
+    
+    // Find true median value
+    size_t mid = centroids.size() / 2;
+    std::nth_element(centroids.begin(), centroids.begin() + mid, centroids.end());
+    double median = centroids[mid];
+    
+    // Add small epsilon to handle coincident centroids
+    const double epsilon = 1e-8;
+    
+    // Partition objects
     auto it = std::partition(objects.begin(), objects.end(),
-        [axis, median](const Obj* obj) {
-            return obj->getBoundingBox().centroid()[axis] < median;
+        [axis, median, epsilon](const Obj* obj) {
+            double centroid = obj->getBoundingBox().centroid()[axis];
+            if (std::abs(centroid - median) < epsilon) {
+                // For coincident centroids, alternate between left and right
+                static bool goLeft = true;
+                goLeft = !goLeft;
+                return goLeft;
+            }
+            return centroid < median;
         });
-
-    // The distance from the beginning to the iterator is the number of elements in the left partition
-    return std::distance(objects.begin(), it);
+    
+    // Ensure we don't create empty partitions
+    int splitIndex = std::distance(objects.begin(), it);
+    if (splitIndex == 0) return 1;
+    if (splitIndex == objects.size()) return objects.size() - 1;
+    
+    return splitIndex;
 }
 
 template <typename Obj>
@@ -123,37 +138,49 @@ bool BVHTree<Obj>::intersect(ray &r, isect &i) const {
 
 template <typename Obj>
 bool BVHTree<Obj>::intersectRecursive(BVHNode *node, ray &r, isect &i) const {
-  double tmin, tmax;
-  if (!node->bbox.intersect(r, tmin, tmax)) {
-    return false;
-  }
+    double tmin, tmax;
+    if (!node->bbox.intersect(r, tmin, tmax)) {
+        return false;
+    }
 
-  if (node->objects.empty()) {
-    // This is an intermediate node, so recursively check its children
+    // For leaf nodes
+    if (!node->objects.empty()) {
+        bool have_one = false;
+        for (const auto &obj : node->objects) {
+            isect cur;
+            if (obj->intersect(r, cur)) {
+                if (!have_one || (cur.getT() < i.getT())) {
+                    i = cur;
+                    have_one = true;
+                }
+            }
+        }
+        return have_one;
+    }
+    
+    // For internal nodes, traverse children
     bool hitLeft = false;
     bool hitRight = false;
-
+    isect leftIsect, rightIsect;
+    
+    // Initialize with current best intersection
+    leftIsect = rightIsect = i;
+    
     if (node->left) {
-      hitLeft = intersectRecursive(node->left.get(), r, i);
+        hitLeft = intersectRecursive(node->left.get(), r, leftIsect);
     }
-
     if (node->right) {
-      hitRight = intersectRecursive(node->right.get(), r, i);
+        hitRight = intersectRecursive(node->right.get(), r, rightIsect);
     }
-
+    
+    // Update intersection with closest hit
+    if (hitLeft && hitRight) {
+        i = (leftIsect.getT() < rightIsect.getT()) ? leftIsect : rightIsect;
+    } else if (hitLeft) {
+        i = leftIsect;
+    } else if (hitRight) {
+        i = rightIsect;
+    }
+    
     return hitLeft || hitRight;
-  } else {
-    // This is a leaf node, so check for intersections with the objects
-    bool have_one = false;
-    for (const auto &obj : node->objects) {
-      isect cur;
-      if (obj->intersect(r, cur)) {
-        if (!have_one || (cur.getT() < i.getT())) {
-          i = cur;
-          have_one = true;
-        }
-      }
-    }
-    return have_one;
-  }
 }
