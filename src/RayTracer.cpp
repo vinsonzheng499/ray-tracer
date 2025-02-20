@@ -21,6 +21,9 @@
 #include <thread>
 #include <future> 
 
+#include <cmath>
+#include <random>
+
 using namespace std;
 extern TraceUI *traceUI;
 
@@ -415,14 +418,20 @@ void RayTracer::traceImage(int w, int h) {
 
 int RayTracer::aaImage() {
   if (samples <= 1) {
-      return 0; // No anti-aliasing needed
+      return 0; // Don't need AA
   }
+
+  // RNG
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::uniform_real_distribution<double> dist(0.0, 1.0);
 
   for (int i = 0; i < buffer_width; i++) {
       for (int j = 0; j < buffer_height; j++) {
           glm::dvec3 originalColor = getPixel(i, j);
           bool needsAA = false;
           
+          // Check if this pixel needs AA by comparing with neighbors
           for (int di = -1; di <= 1 && !needsAA; di++) {
               for (int dj = -1; dj <= 1; dj++) {
                   if (di == 0 && dj == 0) continue;
@@ -444,23 +453,44 @@ int RayTracer::aaImage() {
           if (needsAA) {
               glm::dvec3 accumulatedColor(0.0);
               
-              for (int si = 0; si < samples; si++) {
-                  for (int sj = 0; sj < samples; sj++) {
-                      double stratumSize = 1.0 / sqrt(samples);
-                      double x = (i + (si * stratumSize + stratumSize/2.0)) / double(buffer_width);
-                      double y = (j + (sj * stratumSize + stratumSize/2.0)) / double(buffer_height);
+              // Calculate grid dimensions for jittered sampling
+              int sqrtSamples = static_cast<int>(ceil(sqrt(samples)));
+              int actualSamples = 0;
+              
+              for (int si = 0; si < sqrtSamples; si++) {
+                  for (int sj = 0; sj < sqrtSamples; sj++) {
+                      // Stop if reached sample limit
+                      if (actualSamples >= samples) break;
+                      actualSamples++;
+                      
+                      // Size of each stratum
+                      double stratumWidth = 1.0 / sqrtSamples;
+                      double stratumHeight = 1.0 / sqrtSamples;
+                      
+                      // Calculate base position within the stratum
+                      double baseX = static_cast<double>(si) * stratumWidth;
+                      double baseY = static_cast<double>(sj) * stratumHeight;
+                      
+                      // Add random jitter within the stratum
+                      double jitterX = dist(gen) * stratumWidth;
+                      double jitterY = dist(gen) * stratumHeight;
+                      
+                      // Final sample position within pixel
+                      double sampleX = baseX + jitterX;
+                      double sampleY = baseY + jitterY;
+                      
+                      // Convert to image coordinates
+                      double x = (i + sampleX) / static_cast<double>(buffer_width);
+                      double y = (j + sampleY) / static_cast<double>(buffer_height);
                       
                       accumulatedColor += trace(x, y);
                   }
               }
-              
-              glm::dvec3 finalColor = accumulatedColor / (double)(samples * samples);              
-
+              glm::dvec3 finalColor = accumulatedColor / static_cast<double>(actualSamples);
               setPixel(i, j, finalColor);
           }
       }
   }
-
   return 1;
 }
 
