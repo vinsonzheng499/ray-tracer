@@ -1,0 +1,11 @@
+[
+  { "camera": { "position": [0.0, 0.0, 4.0], "aspectratio": 1.0 } },
+  {
+    "sphere": {
+      "material": {
+        "emissive": { "constant": [0.4, 0.2, 0.2] },
+        "transmissive": { "constant": [0.1, 0.5, 0.5] }
+      }
+    }
+  }
+]
