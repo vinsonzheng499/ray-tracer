@@ -79,6 +79,15 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
   std::cerr << "== current depth: " << depth << std::endl;
 #endif
 
+  // Early termination check based on contribution threshold
+  if (glm::all(glm::lessThan(thresh, glm::dvec3(this->thresh)))) {
+    return glm::dvec3(0.0, 0.0, 0.0);
+  }
+
+  // if (debugMode) {
+  //   cout << this->thresh << " " << thresh << endl;
+  // }
+
   if (scene->intersect(r, i)) {
     // YOUR CODE HERE
 
@@ -133,7 +142,8 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
             }
           }
         }
-        colorC += emittance + transmittance * m.kr(i) * traceRay(reflectedRay, thresh, depth - 1, t);
+        glm::dvec3 reflThresh = thresh * transmittance * m.kr(i);
+        colorC += emittance + transmittance * m.kr(i) * traceRay(reflectedRay, reflThresh, depth - 1, t);
       }
 
       // refraction
@@ -182,7 +192,8 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
           // if (debugMode) {
           //   cout << "emittance: " << emittance << endl;
           // }
-          colorC += emittance + transmittance * traceRay(refractedRay, thresh, depth - 1, t);
+          glm::dvec3 refrThresh = thresh * transmittance;
+          colorC += emittance + transmittance * traceRay(refractedRay, refrThresh, depth - 1, t);
         }
       }
     }
