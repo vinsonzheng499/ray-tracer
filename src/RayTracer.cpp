@@ -171,7 +171,7 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
         // }
 
         if (glm::length(T) > 0.0) {
-          // Normal refraction, otherwise TIR and we already shot a reflection ray
+          // Normal refraction
           ray refractedRay = ray(hitPoint + D * RAY_EPSILON, T, r.getAtten(), ray::REFRACTION);
           glm::dvec3 transmittance = glm::dvec3(1.0, 1.0, 1.0);
           glm::dvec3 emittance = glm::dvec3(0.0, 0.0, 0.0);
@@ -197,6 +197,29 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
           // }
           glm::dvec3 refrThresh = thresh * transmittance;
           colorC += emittance + transmittance * traceRay(refractedRay, refrThresh, depth - 1, t);
+        } else {
+          // Total Internal Reflection
+          // Use reflection only
+          ray reflectedRay(offsetHitPoint, R, r.getAtten(), ray::REFLECTION);
+          glm::dvec3 transmittance = glm::dvec3(1.0, 1.0, 1.0);
+          glm::dvec3 emittance = glm::dvec3(0.0, 0.0, 0.0);
+
+          // Calculate attenuation if inside the medium
+          if (!entering) {
+            double d = glm::max(glm::distance(r.getPosition() + D * RAY_EPSILON, r.at(i.getT())), 0.0);
+            transmittance = glm::pow(m.kt(i), glm::dvec3(d));
+        
+            if (m.ke(i) != glm::dvec3(0.0, 0.0, 0.0)) {
+              for (int j = 0; j < 3; j++) {
+                if (m.kt(i)[j] < 1.0) {
+                  emittance[j] = m.ke(i)[j] * (glm::pow(m.kt(i)[j], d * d * d) - 1.0) / log(m.kt(i)[j]);
+                } else {
+                  emittance[j] = m.ke(i)[j] * d;
+                }
+              }
+            }
+          }
+          colorC += emittance + transmittance * traceRay(reflectedRay, thresh * transmittance, depth - 1, t);
         }
       }
     }
