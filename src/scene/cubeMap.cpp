@@ -1,8 +1,11 @@
+#include <iostream>
 #include "cubeMap.h"
 #include "../scene/material.h"
 #include "../ui/TraceUI.h"
 #include "ray.h"
 extern TraceUI *traceUI;
+
+using namespace std;
 
 glm::dvec3 CubeMap::getColor(ray r) const {
   // YOUR CODE HERE
@@ -15,23 +18,23 @@ glm::dvec3 CubeMap::getColor(ray r) const {
   double absX = std::abs(dir.x);
   double absY = std::abs(dir.y);
   double absZ = std::abs(dir.z);
-  
+
   double maxAxis, u, v;
   int faceIndex;
-  
+
   // Right face: +x
   if (absX >= absY && absX >= absZ && dir.x > 0) {
     faceIndex = 0;  // xpos
     maxAxis = absX;
-    u = -dir.z;
-    v = -dir.y;
+    u = dir.z;
+    v = dir.y;
   }
   // Left face: -x
   else if (absX >= absY && absX >= absZ && dir.x <= 0) {
     faceIndex = 1;  // xneg
     maxAxis = absX;
-    u = dir.z;
-    v = -dir.y;
+    u = -dir.z;
+    v = dir.y;
   }
   // Top face: +y
   else if (absY >= absX && absY >= absZ && dir.y > 0) {
@@ -47,16 +50,16 @@ glm::dvec3 CubeMap::getColor(ray r) const {
     u = dir.x;
     v = -dir.z;
   }
-  // Front face: +z (looking from +z direction)
-  else if (dir.z > 0) {
-    faceIndex = 5;  // zpos
-    maxAxis = absZ;
-    u = dir.x;
-    v = -dir.y;
-  }
   // Back face: -z
+  else if (dir.z > 0) {
+    faceIndex = 5;  // zneg
+    maxAxis = absZ;
+    u = -dir.x;
+    v = dir.y;
+  }
+  // Front face: +z
   else {
-    faceIndex = 4;  // zneg
+    faceIndex = 4;  // zpos
     maxAxis = absZ;
     u = dir.x;
     v = dir.y;
