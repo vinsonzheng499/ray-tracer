@@ -26,21 +26,19 @@ texture mapping, you'll want to fill in the getMappedValue function to
 implement basic texture mapping. */
 class TextureMap {
 public:
-  TextureMap(string filename);
+  enum MapType {
+    COLOR,
+    NORMAL
+  };
 
-  // Return the mapped value; here the coordinate is assumed to be within
-  // the parametrization space:
-  // [0, 1] x [0, 1]
-  // (i.e., {(u, v): 0 <= u <= 1 and 0 <= v <= 1}
+public:
+  TextureMap(string filename, MapType type = COLOR); // Default to COLOR
   glm::dvec3 getMappedValue(const glm::dvec2 &coord) const;
-
-  // Retrieve the value stored in a physical location (with integer coordinates)
-  // in the bitmap. Should be called from getMappedValue in order to do
-  // bilinear interpolation.
   glm::dvec3 getPixelAt(int x, int y) const;
 
   int getWidth() const { return width; }
   int getHeight() const { return height; }
+  MapType getType() const { return type; }
 
   ~TextureMap() {}
 
@@ -48,6 +46,7 @@ protected:
   int width;
   int height;
   std::vector<uint8_t> data;
+  MapType type;
 };
 
 class TextureMapException {
@@ -73,15 +72,34 @@ to do this.
 
 class MaterialParameter {
 public:
+  enum ParameterType {
+    CONSTANT,
+    TEXTURE,
+    NORMAL_MAP
+  };
+
+public:
   explicit MaterialParameter(const glm::dvec3 &par)
-      : _value(par), _textureMap(0) {}
+      : _value(par), _textureMap(nullptr), _normalMap(nullptr), _type(CONSTANT) {}
 
   explicit MaterialParameter(const double par)
-      : _value(par, par, par), _textureMap(0) {}
+      : _value(par, par, par), _textureMap(nullptr), _normalMap(nullptr), _type(CONSTANT) {}
 
-  explicit MaterialParameter(TextureMap *tex) : _textureMap(tex) {}
+  explicit MaterialParameter(TextureMap *tex) : _textureMap(tex), _normalMap(nullptr), _type(TEXTURE) {}
 
-  MaterialParameter() : _value(0.0, 0.0, 0.0), _textureMap(0) {}
+  explicit MaterialParameter(TextureMap *map, ParameterType type)
+      : _textureMap(nullptr), _normalMap(nullptr), _type(type) {
+
+    if (type == NORMAL_MAP) {
+      _normalMap = map;
+    } else if (type == TEXTURE) {
+      _textureMap = map;
+    } else {
+      throw std::runtime_error("Invalid parameter type for TextureMap constructor.");
+    }
+  }
+
+  MaterialParameter() : _value(0.0, 0.0, 0.0), _textureMap(nullptr), _normalMap(nullptr), _type(CONSTANT) {}
 
   MaterialParameter &operator*=(const MaterialParameter &rhs) {
     (*this) *= rhs._value;
@@ -109,14 +127,18 @@ public:
 
   void setValue(const glm::dvec3 &rhs) {
     _value = rhs;
-    _textureMap = 0;
+    _textureMap = nullptr;
+    _normalMap = nullptr;
+    _type = CONSTANT;
   }
 
   void setValue(const double rhs) {
     _value[0] = rhs;
     _value[1] = rhs;
     _value[2] = rhs;
-    _textureMap = 0;
+    _textureMap = nullptr;
+    _normalMap = nullptr;
+    _type = CONSTANT;
   }
 
   bool isZero() { return glm::length(_value) == 0.0; }
@@ -131,11 +153,14 @@ public:
 
   // Use this to determine if the particular parameter is
   // mapped; use this to determine if we need to somehow renormalize.
-  bool mapped() const { return _textureMap != 0; }
+  bool mapped() const { return _textureMap != nullptr; }
+  bool isNormalMap() const { return _normalMap != nullptr; }
 
 private:
   glm::dvec3 _value;
   TextureMap *_textureMap;
+  TextureMap *_normalMap;
+  ParameterType _type;
 };
 
 class Material {
@@ -227,6 +252,7 @@ public:
     _shininess = shininess;
   }
   void setIndex(const MaterialParameter &index) { _index = index; }
+  void setNormalMap(const MaterialParameter &norm) { _norm = norm; }
 
   // get booleans for reflection and refraction
   bool Refl() const { return _refl; }
@@ -242,6 +268,7 @@ private:
   MaterialParameter _kd; // diffuse
   MaterialParameter _kr; // reflective
   MaterialParameter _kt; // transmissive
+  MaterialParameter _norm; // normal map
 
   bool _refl;  // specular reflector?
   bool _trans; // specular transmitter?

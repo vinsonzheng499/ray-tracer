@@ -187,7 +187,7 @@ public:
   // For efficiency reasons, we'll store texture maps in a cache
   // in the Scene. This makes sure they get deleted when the scene
   // is destroyed.
-  TextureMap *getTexture(string name);
+  TextureMap *getTexture(string name, TextureMap::MapType type = TextureMap::COLOR);
 
   // These two functions are for handling ambient light; in the Phong model, the
   // "ambient" light is considered a property of the _scene_ as a whole and
@@ -224,6 +224,7 @@ private:
 
   typedef std::map<std::string, std::unique_ptr<TextureMap>> tmap;
   tmap textureCache;
+  tmap normalCache;
 
   // Each object in the scene that has a hasBoundingBoxCapability(),
   // must fall within this bounding box. Objects that don't have

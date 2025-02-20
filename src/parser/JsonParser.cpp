@@ -7,7 +7,6 @@
 #include <sstream>
 
 #include <glm/gtc/type_ptr.hpp>
-#include <iostream>
 #include <unordered_map>
 
 #include <json.hpp>
@@ -75,20 +74,24 @@ Camera parseCamera(const json &j) {
 MaterialParameter parseMaterialParameter(const json &j, ParseData &pd) {
   MaterialParameter p;
   if (hasKey(j, "constant")) {
-    p = MaterialParameter(j.at("constant").get<glm::dvec3>());
-  } else if (hasKey(j, "mapped")) {
-    auto texName = j.at("mapped").get<std::string>();
-    auto texPath = pd.scene_dir / texName;
-    // Due to lifetime issues, this must be constructed in-place in
-    // the scene using getTexture. Bad things happen if you try
-    // something else.
-    p = MaterialParameter(pd.s->getTexture(texPath.string()));
-  } else {
-    auto s = j.begin().key();
-    throw ParserException(
-        "Material parameter must be either constant or mapped "
-        "but it is " +
-        s);
+      p = MaterialParameter(j.at("constant").get<glm::dvec3>());
+  }
+  else if (hasKey(j, "mapped")) {
+      auto texName = j.at("mapped").get<std::string>();
+      auto texPath = pd.scene_dir / texName;
+      TextureMap::MapType mapType = TextureMap::COLOR; // Default to COLOR
+      if (hasKey(j, "type") && j.at("type").get<std::string>() == "normal") {
+          mapType = TextureMap::NORMAL;
+      }
+      p = MaterialParameter(pd.s->getTexture(texPath.string(), mapType), 
+          (mapType == TextureMap::NORMAL) ? MaterialParameter::NORMAL_MAP : MaterialParameter::TEXTURE);
+  }
+  else {
+      auto s = j.begin().key();
+      throw ParserException(
+          "Material parameter must be either constant or mapped or normal"
+          "but it is " +
+          s);
   }
   return p;
 }
@@ -106,6 +109,7 @@ Material parseMaterial(const json &j, ParseData &pd) {
   IGNORE_MISSING(m.setEmissive(parseMaterialParameter(j.at("emissive"), pd)));
   IGNORE_MISSING(m.setShininess(j.at("shininess").get<double>()));
   IGNORE_MISSING(m.setIndex(j.at("index").get<double>()));
+  IGNORE_MISSING(m.setNormalMap(parseMaterialParameter(j.at("normalMap"), pd)));
   return m;
 }
 

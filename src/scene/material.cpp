@@ -6,7 +6,6 @@ extern TraceUI *traceUI;
 
 #include "../fileio/images.h"
 #include <glm/gtx/io.hpp>
-#include <iostream>
 
 using namespace std;
 extern bool debugMode;
@@ -41,6 +40,25 @@ glm::dvec3 Material::shade(Scene *scene, const ray &r, const isect &i) const {
   if (glm::dot(N, V) < 0.0) {
     N = -N;
   }
+
+  if (_norm.isNormalMap()) {
+    // Sample normal from normal map and transform to tangent space
+    glm::dvec3 normalMapValue = _norm.value(i);
+
+    // Convert from [0, 1] to [-1, 1]
+    normalMapValue = 2.0 * normalMapValue - 1.0;
+    normalMapValue = glm::normalize(normalMapValue);
+
+    // Compute tangent and bitangent
+    glm::dvec3 T = glm::normalize(glm::cross(N, V));
+    glm::dvec3 B = glm::normalize(glm::cross(N, T));
+
+    // Construct tangent-to-world space matrix
+    glm::dmat3 TBN(T, B, N);
+    // Transform normal from tangent to world space
+    N = glm::normalize(TBN * normalMapValue);
+  }
+
   glm::dvec3 I_a = scene->ambient(); // ambient light intensity
   glm::dvec3 ambient = ka(i) * I_a; // ambient term
   glm::dvec3 I_phong = ke(i) + ambient; // final intensity at surface
@@ -50,14 +68,14 @@ glm::dvec3 Material::shade(Scene *scene, const ray &r, const isect &i) const {
   {
     glm::dvec3 I_l = pLight->getColor(); // intensity of light source
     glm::dvec3 L = glm::normalize(pLight->getDirection(P)); // Direction vector from surface point to light source
-    double N_dot_L = glm::dot(i.getN(), L);
+    double N_dot_L = glm::dot(N, L);
     glm::dvec3 diffuse = kd(i) * N_dot_L; // diffuse term
     if (Trans()) {
       diffuse = glm::abs(diffuse);
     } else {
       diffuse = glm::clamp(diffuse, 0.0, 1.0);
     }
-    glm::dvec3 R = glm::reflect(-L, i.getN()); // reflection vector of light direction about surface normal
+    glm::dvec3 R = glm::reflect(-L, N); // reflection vector of light direction about surface normal
     double V_dot_R = max(glm::dot(glm::normalize(-r.getDirection()), R), 0.0); // clamped dot product
     double ns = shininess(i); // shininess exponent
     glm::dvec3 specular = ks(i) * pow(V_dot_R, ns); // specular term
@@ -70,7 +88,7 @@ glm::dvec3 Material::shade(Scene *scene, const ray &r, const isect &i) const {
   return glm::clamp(I_phong, 0.0, 1.0);
 }
 
-TextureMap::TextureMap(string filename) {
+TextureMap::TextureMap(string filename, MapType type) : type(type) {
   data = readImage(filename.c_str(), width, height);
   if (data.empty()) {
     width = 0;
@@ -137,23 +155,23 @@ glm::dvec3 TextureMap::getPixelAt(int x, int y) const {
   
   // Convert from 0-255 range to 0.0-1.0 range
   return glm::dvec3(
-      data[index] / 255.0,
-      data[index + 1] / 255.0,
-      data[index + 2] / 255.0
+    data[index] / 255.0,
+    data[index + 1] / 255.0,
+    data[index + 2] / 255.0
   );
 }
 
 glm::dvec3 MaterialParameter::value(const isect &is) const {
-  if (0 != _textureMap)
+  if (_normalMap != nullptr) {
+    return _normalMap->getMappedValue(is.getUVCoordinates());
+  } else if (_textureMap != nullptr) {
     return _textureMap->getMappedValue(is.getUVCoordinates());
-  else
+  } else {
     return _value;
+  }
 }
 
 double MaterialParameter::intensityValue(const isect &is) const {
-  if (0 != _textureMap) {
-    glm::dvec3 value(_textureMap->getMappedValue(is.getUVCoordinates()));
-    return (0.299 * value[0]) + (0.587 * value[1]) + (0.114 * value[2]);
-  } else
-    return (0.299 * _value[0]) + (0.587 * _value[1]) + (0.114 * _value[2]);
+  glm::dvec3 val = value(is);
+  return (0.299 * val[0]) + (0.587 * val[1]) + (0.114 * val[2]);
 }

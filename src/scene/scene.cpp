@@ -7,7 +7,6 @@
 #include "../SceneObjects/trimesh.h"
 #include <glm/gtx/extended_min_max.hpp>
 #include <glm/gtx/io.hpp>
-#include <iostream>
 
 using namespace std;
 
@@ -138,13 +137,22 @@ bool Scene::intersect(ray &r, isect &i) const {
   }
 }
 
-TextureMap *Scene::getTexture(string name) {
-  auto itr = textureCache.find(name);
-  if (itr == textureCache.end()) {
-    textureCache[name].reset(new TextureMap(name));
-    return textureCache[name].get();
+TextureMap *Scene::getTexture(string name, TextureMap::MapType type) {
+  if (type == TextureMap::NORMAL) {
+    auto itr = normalCache.find(name);
+    if (itr == normalCache.end()) {
+      normalCache[name].reset(new TextureMap(name, type));
+      return normalCache[name].get();
+    }
+    return itr->second.get();
+  } else {
+    auto itr = textureCache.find(name);
+    if (itr == textureCache.end()) {
+      textureCache[name].reset(new TextureMap(name, type));
+      return textureCache[name].get();
+    }
+    return itr->second.get();
   }
-  return itr->second.get();
 }
 
 void Scene::buildBVH(int maxDepth, int targetLeafSize) {
