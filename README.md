@@ -22,8 +22,8 @@ git archive HEAD -o ${PWD##*/}.zip --prefix ray/
 This passes sancheck
 
 ## Partial Credit for Milestone 1
-Our refractions, in particular handling translucent/transparent objects using kt^d, especially for scenes like sphere_refract3 and sphere_refract4 don't seem to be getting the inside refractive rays or some other issue. This is also apparent in cyl_box_transp_shadow.  
-Edit: This refraction issue has been fixed.
+Our refractions, in particular handling translucent/transparent objects using kt^d, especially for scenes like sphere_refract3 and sphere_refract4 don't seem to be getting the inside refractive rays or some other issue. This is also apparent in cyl_box_transp_shadow. TIR was also not implemented in time for milestone 1.  
+Edit: This refraction issue has been fixed. TIR has also been implemented.
 
 ## Extra Credit  
 We added 7 custom scenes for this milestone, which are all in the created-scenes folder.
