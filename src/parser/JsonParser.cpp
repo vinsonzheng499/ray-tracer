@@ -8,6 +8,7 @@
 
 #include <glm/gtc/type_ptr.hpp>
 #include <unordered_map>
+#include <map>
 
 #include <json.hpp>
 using json = nlohmann::json;
@@ -389,7 +390,7 @@ Scene *JsonParser::parseScene() {
 }
 
 // Helper function to set parts of a Material from a tinyobj material
-void MaterialFromTinyObj(Material *target, tinyobj::material_t mat) {
+void MaterialFromTinyObj(Material *target, const tinyobj::material_t& mat, ParseData& pd) {
   target->setAmbient(glm::make_vec3(mat.ambient));
   target->setDiffuse(glm::make_vec3(mat.diffuse));
   target->setSpecular(glm::make_vec3(mat.specular));
@@ -397,6 +398,54 @@ void MaterialFromTinyObj(Material *target, tinyobj::material_t mat) {
   target->setTransmissive(glm::make_vec3(mat.transmittance));
   target->setShininess(mat.shininess);
   target->setIndex(mat.ior);
+
+  // Handle texture maps with paths relative to the scene directory
+  if (!mat.diffuse_texname.empty()) {
+    try {
+          std::string texPath = (pd.scene_dir / mat.diffuse_texname).string();
+          target->setDiffuse(MaterialParameter(pd.s->getTexture(texPath)));
+      } catch (TextureMapException& e) {
+          std::cerr << "Warning: Could not load diffuse texture '" << mat.diffuse_texname << "': " << e.message() << std::endl;
+      }
+  }
+
+  if (!mat.specular_texname.empty()) {
+     try {
+          std::string texPath = (pd.scene_dir / mat.specular_texname).string();
+          target->setSpecular(MaterialParameter(pd.s->getTexture(texPath)));
+      } catch (TextureMapException& e) {
+          std::cerr << "Warning: Could not load specular texture '" << mat.specular_texname << "': " << e.message() << std::endl;
+      }
+  }
+
+  // Add other texture types (ambient, emissive, bump, normal, etc.) if needed
+  if (!mat.ambient_texname.empty()) {
+      try {
+          std::string texPath = (pd.scene_dir / mat.ambient_texname).string();
+          target->setAmbient(MaterialParameter(pd.s->getTexture(texPath)));
+      } catch (TextureMapException& e) {
+          std::cerr << "Warning: Could not load ambient texture '" << mat.ambient_texname << "': " << e.message() << std::endl;
+      }
+  }
+  if (!mat.emissive_texname.empty()) {
+      try {
+          std::string texPath = (pd.scene_dir / mat.emissive_texname).string();
+          target->setEmissive(MaterialParameter(pd.s->getTexture(texPath)));
+      } catch (TextureMapException& e) {
+          std::cerr << "Warning: Could not load emissive texture '" << mat.emissive_texname << "': " << e.message() << std::endl;
+      }
+  }
+   // Load normal map if specified
+  if (!mat.normal_texname.empty()) {
+      try {
+          std::string texPath = (pd.scene_dir / mat.normal_texname).string();
+          // Ensure the TextureMap is loaded with NORMAL type
+          target->setNormalMap(MaterialParameter(pd.s->getTexture(texPath, TextureMap::NORMAL)));
+      } catch (TextureMapException& e) {
+          std::cerr << "Warning: Could not load normal map '" << mat.normal_texname << "': " << e.message() << std::endl;
+      }
+  }
+
 }
 
 // Cantor hash function. We need at least 64 bits in the computation, since the
@@ -422,126 +471,104 @@ struct TinyObjIndexEq {
 only support certain features. See jsonformat.md for the limitations.
 */
 Trimesh *loadObjToTrimesh(const tinyobj::ObjReader &rdr,
-                          const tinyobj::shape_t &s, Trimesh *t,
-                          ParseData &pd) {
-  auto &attrib = rdr.GetAttrib();
-  auto &materials = rdr.GetMaterials();
+  const tinyobj::shape_t &s, Trimesh *t,
+  ParseData &pd) {
+auto &attrib = rdr.GetAttrib();
+auto &materials = rdr.GetMaterials();
 
-  /* Faces in OBJ files can use different indices for
-     UV/normals/positions. For example, naively you can specify a face as
-     (1, 2, 3), meaning use vertex positions 1/2/3, UV coordinates 1/2/3,
-     etc. However, we can also mix and match, e.g. (1/1/1, 2/2/2, 3/1/1)
-     would use the same vertex positions, but use the first vertex's
-     UV/normal on the third vertex.
+// 1. Load all materials from the reader into the Trimesh's material list
+//    and create a mapping from tinyobj material ID to Trimesh material index.
+std::vector<int> tinyObjMatIdToTrimeshMatIndex;
+if (!materials.empty()) {
+tinyObjMatIdToTrimeshMatIndex.reserve(materials.size());
+for(const auto& tinyMat : materials) {
+Material currentMaterial; // Start with a default material
+// Use the helper to populate it from tinyobj::material_t
+MaterialFromTinyObj(&currentMaterial, tinyMat, pd);
+// Add to Trimesh and store the index mapping
+int trimeshMatIndex = t->addMeshMaterial(currentMaterial, tinyMat.name);
+tinyObjMatIdToTrimeshMatIndex.push_back(trimeshMatIndex);
+}
+} else {
+// If no materials in MTL, add the default one passed to Trimesh constructor
+// to ensure index 0 is valid if needed, although material IDs will be -1.
+// t->addMeshMaterial(t->getMaterial()); // Add the base material as index 0
+// tinyObjMatIdToTrimeshMatIndex.push_back(0);
+// Let's rely on the material ID being -1 in this case, so getMaterial() uses the base.
+}
 
-     Instead of dealing with this during rendering, we preprocess the OBJ
-     file so that every unique combination of v/vt/vn gets its own index
-     in the Trimesh. This increases memory usage slightly, but most renderers
-     (incl. OpenGL) need separate arrays of indices anyways.
-  */
 
-  bool warned = false;
-  std::unordered_map<tinyobj::index_t, int, TinyObjIndexHash, TinyObjIndexEq>
-      indexMap;
+bool warned = false;
+std::unordered_map<tinyobj::index_t, int, TinyObjIndexHash, TinyObjIndexEq>
+indexMap;
 
-  // If this v/vt/vn combination has been seen before, return the linear
-  // index. Otherwise, create it by inserting the combination into the
-  // mesh.
-  auto getOrCreateLinearIndex = [&attrib, &indexMap, &warned,
-                                 t](tinyobj::index_t i) {
-    if (indexMap.find(i) == indexMap.end()) {
-      if (indexMap.size() > MAX_RECOMMENDED_VERTS && !warned) {
-        std::cerr << "WARN: Detected many vertices in OBJ input. This may "
-                     "cause memory problems. Consider decimating the mesh."
-                  << std::endl;
-        warned = true;
-      }
+auto getOrCreateLinearIndex = [&attrib, &indexMap, &warned,
+         t](tinyobj::index_t i) {
+if (indexMap.find(i) == indexMap.end()) {
+if (indexMap.size() > MAX_RECOMMENDED_VERTS && !warned) {
+std::cerr << "WARN: Detected many vertices in OBJ input. This may "
+"cause memory problems. Consider decimating the mesh."
+<< std::endl;
+warned = true;
+}
 
-      indexMap[i] = indexMap.size();
-      t->addVertex(glm::make_vec3(&attrib.vertices[3 * i.vertex_index]));
-      if (i.normal_index != -1) {
-        auto n = glm::make_vec3(&attrib.normals[3 * i.normal_index]);
-        // OBJ normals are not required to be normalized; ours are
-        t->addNormal(glm::normalize(n));
-      }
+size_t newIndex = indexMap.size(); // Get the index *before* insertion
+indexMap[i] = static_cast<int>(newIndex); // Store it
 
-      if (i.texcoord_index != -1) {
-        t->addUV(glm::make_vec2(&attrib.texcoords[2 * i.texcoord_index]));
-      }
-      if (attrib.colors.size() > 0) {
-        t->addColor(glm::make_vec3(&attrib.colors[3 * i.vertex_index]));
-      }
-    }
-    return indexMap[i];
-  };
+// Add vertex data
+t->addVertex(glm::make_vec3(&attrib.vertices[3 * i.vertex_index]));
 
-  // TinyOBJ triangulates for us, so we don't have to check for larger
-  // faces
-  for (long unsigned f = 0; f < s.mesh.indices.size(); f += 3) {
-    auto i0 = getOrCreateLinearIndex(s.mesh.indices[f]);
-    auto i1 = getOrCreateLinearIndex(s.mesh.indices[f + 1]);
-    auto i2 = getOrCreateLinearIndex(s.mesh.indices[f + 2]);
-    t->addFace(i0, i1, i2);
-  }
+if (i.normal_index != -1 && 3 * i.normal_index + 2 < attrib.normals.size()) {
+auto n = glm::make_vec3(&attrib.normals[3 * i.normal_index]);
+t->addNormal(glm::normalize(n));
+}
 
-  /* Finished parsing geometry, now parse materials. The parser currently
-  only supports a single material per mesh, because to do otherwise
-  would require modification of the Trimesh class itself.
+if (i.texcoord_index != -1 && 2 * i.texcoord_index + 1 < attrib.texcoords.size()) {
+t->addUV(glm::make_vec2(&attrib.texcoords[2 * i.texcoord_index]));
+}
+if (attrib.colors.size() > 0 && 3 * i.vertex_index + 2 < attrib.colors.size()) {
+t->addColor(glm::make_vec3(&attrib.colors[3 * i.vertex_index]));
+}
+return static_cast<int>(newIndex); // Return the stored index
+}
+return indexMap[i]; // Return existing index
+};
 
-  If you want to support multiple materials, you need to do the following:
+// TinyOBJ triangulates for us, so we don't have to check for larger faces
+for (long unsigned f = 0; f < s.mesh.indices.size(); f += 3) {
+auto i0 = getOrCreateLinearIndex(s.mesh.indices[f]);
+auto i1 = getOrCreateLinearIndex(s.mesh.indices[f + 1]);
+auto i2 = getOrCreateLinearIndex(s.mesh.indices[f + 2]);
 
-       1. Modify the Trimesh class to support multiple materials in an
-          array or vector
-       2. Loop over the `materials` array here and place each material in
-          the materials vector in the Trimesh
-       3. For each face with index f, access s.mesh.material_ids[f] to get
-          the index of the material for that face. Record this
-          information in the Trimesh somehow (perhaps modifying the
-          addFace method)
-       4. When rendering an intersection with a face, look up the
-          corresponding material in the Trimesh, then use that as the
-          material for the intersection phase (including barycentric
-          interpolation of the material if it is called for).
+// 2. Get the material ID for this face from tinyobjloader
+int face_mat_id = -1; // Default to -1 (no specific material)
+if (!s.mesh.material_ids.empty()) {
+face_mat_id = s.mesh.material_ids[f / 3]; // Integer division gets the triangle index
+}
 
-// Face f should render using materials[k]
-auto k = s.mesh.material_ids[f];
-*/
+// 3. Map the tinyobj material ID to our Trimesh material index
+int trimeshMaterialIndex = -1; // Default to using the base material
+if (face_mat_id >= 0 && static_cast<size_t>(face_mat_id) < tinyObjMatIdToTrimeshMatIndex.size()) {
+trimeshMaterialIndex = tinyObjMatIdToTrimeshMatIndex[face_mat_id];
+}
 
-  // Take the first material associated with the mesh and use it.
-  Material *m = new Material();
-  if (materials.size() > 0) {
-    tinyobj::material_t mtl = materials[0];
-    m->setDiffuse(glm::make_vec3(mtl.diffuse));
-    m->setSpecular(glm::make_vec3(mtl.specular));
-    m->setAmbient(glm::make_vec3(mtl.ambient));
-    m->setTransmissive(glm::make_vec3(mtl.transmittance));
-    m->setEmissive(glm::make_vec3(mtl.emission));
-    m->setShininess(mtl.shininess);
-    m->setIndex(mtl.ior);
+// 4. Add the face with the correct material index
+t->addFace(i0, i1, i2, trimeshMaterialIndex);
+}
 
-    if (!mtl.diffuse_texname.empty()) {
-      std::string texPath = (pd.scene_dir / mtl.diffuse_texname).string();
-      m->setDiffuse(MaterialParameter(pd.s->getTexture(texPath)));
-    }
+// Material setting is now handled per-face, so remove the single material set.
+// t->setMaterial(m); // REMOVE THIS LINE
 
-    if (!mtl.specular_texname.empty()) {
-      std::string texPath = (pd.scene_dir / mtl.specular_texname).string();
-      m->setSpecular(MaterialParameter(pd.s->getTexture(texPath)));
-    }
-  }
+if (attrib.normals.size() > 0 && !t->vertNorms) { // Check if normals were actually loaded
+t->vertNorms = true;
+}
 
-  t->setMaterial(m);
+const char *err = t->doubleCheck();
+if (err != nullptr) {
+throw ParserException("Error while parsing OBJ file: " + std::string(err));
+}
 
-  if (attrib.normals.size() > 0) {
-    t->vertNorms = true;
-  }
-
-  const char *err = t->doubleCheck();
-  if (err != nullptr) {
-    throw ParserException("Error while parsing OBJ file: " + std::string(err));
-  }
-
-  return t;
+return t;
 }
 
 std::vector<Trimesh *> parseObjmeshBody(const json &j, ParseData &pd) {
@@ -553,10 +580,11 @@ std::vector<Trimesh *> parseObjmeshBody(const json &j, ParseData &pd) {
   std::vector<Trimesh *> results;
 
   tinyobj::ObjReaderConfig reader_config;
+  // Use the directory of the JSON file as the base for MTL search path
   reader_config.mtl_search_path = pd.scene_dir.string();
   reader_config.triangulate = true;
-  reader_config.vertex_color = false; // Populate vertex colors only if
-                                      // *all* vertices have associated colors
+  reader_config.vertex_color = false;
+
   tinyobj::ObjReader reader;
   bool success = reader.ParseFromFile(path, reader_config);
 
@@ -584,16 +612,17 @@ std::vector<Trimesh *> parseObjmeshBody(const json &j, ParseData &pd) {
               << std::endl;
   }
 
+  // Create one Trimesh per shape in the OBJ file
   for (const tinyobj::shape_t &s : shapes) {
+    // Pass the default material (pd.cur_mat) to the Trimesh constructor.
+    // loadObjToTrimesh will then load materials from the MTL and override this if found.
     Trimesh *t = new Trimesh(pd.s, &pd.cur_mat, pd.getCurrentTransform());
 
     loadObjToTrimesh(reader, s, t, pd);
 
-    if (genNormals) {
+    if (genNormals && !t->vertNorms) { // Only generate if not loaded and requested
       t->generateNormals();
     }
-
-
 
     results.push_back(t);
   }

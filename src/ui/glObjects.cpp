@@ -328,63 +328,99 @@ void Square::glDrawLocal(int quality, [[maybe_unused]] bool actualMaterials,
 }
 
 void Trimesh::glDrawLocal([[maybe_unused]] int quality, bool actualMaterials,
-                          [[maybe_unused]] bool actualTextures) const {
-  // Could be doing this a lot more efficiently w/ vertex arrays, but that
-  // would involve changing the data storage method just for debugging
-  // purposes which is probably wrong.
+  [[maybe_unused]] bool actualTextures) const {
 
-  int *d;
-  if (actualMaterials)
-    d = &displayListWithMaterials;
-  else
-    d = &displayListWithoutMaterials;
-  int &displayList = *d;
+// Determine if we can use a display list (only if 0 or 1 material total)
+bool useDisplayList = materials.empty(); // Use display list only if no mesh-specific materials exist
 
-  // We'll try to buy some time back by using display lists.
-  if (displayList == 0) {
-    displayList = glGenLists(1);
-    glNewList(displayList, GL_COMPILE);
+int *d = nullptr; // Pointer to the correct display list variable
+if (actualMaterials) {
+d = &displayListWithMaterials;
+} else {
+d = &displayListWithoutMaterials;
+}
+int &displayList = *d;
 
-    glBegin(GL_TRIANGLES);
-    for (Faces::const_iterator itr = faces.begin(); itr != faces.end(); ++itr) {
-      const int vert1 = (*(*itr))[0];
-      const int vert2 = (*(*itr))[1];
-      const int vert3 = (*(*itr))[2];
-      setGLMaterial(material, *itr);
 
-      if (normals.empty()) {
-        const glm::dvec3 &a = vertices[vert1];
-        const glm::dvec3 &b = vertices[vert2];
-        const glm::dvec3 &c = vertices[vert3];
+if (useDisplayList && displayList != 0) {
+glCallList(static_cast<GLuint>(displayList)); // Cast to GLuint for safety
+return; // Early exit if using display list
+}
 
-        glm::dvec3 cv = glm::cross(b - a, c - a);
+// (Re)Build display list if needed and possible
+if (useDisplayList) {
+if (displayList != 0) {
+glDeleteLists(static_cast<GLuint>(displayList), 1); // Delete old list if rebuilding
+}
+displayList = static_cast<int>(glGenLists(1)); // Cast GLuint to int
+glNewList(static_cast<GLuint>(displayList), GL_COMPILE);
+// Set the single base material if using display list
+if (actualMaterials) {
+// Pass 'this' Trimesh object to setGLMaterial
+setGLMaterial(SceneObject::getMaterial(), this);
+}
+}
 
-        // there exists some bad triangles such that two
-        // vertices coincide check this before normalize
-        if (glm::length(cv) > 0)
-          glNormal3dv(&cv[0]);
-      }
+glBegin(GL_TRIANGLES);
+for (auto* face : faces) {
+// If not using a display list (because multiple materials exist),
+// set the material for each face.
+if (!useDisplayList && actualMaterials) {
+// Pass 'this' Trimesh object to setGLMaterial
+setGLMaterial(getMaterial(face->getMaterialId()), this); // Use the per-face material
+}
 
-      if (!normals.empty())
-        glNormal3dv(&normals[vert1][0]);
-      glVertex3dv(&vertices[vert1][0]);
+const int vert1 = (*face)[0];
+const int vert2 = (*face)[1];
+const int vert3 = (*face)[2];
 
-      if (!normals.empty())
-        glNormal3dv(&normals[vert2][0]);
+// Check vertex indices are valid before accessing data
+if (vert1 < 0 || static_cast<size_t>(vert1) >= vertices.size() ||
+vert2 < 0 || static_cast<size_t>(vert2) >= vertices.size() ||
+vert3 < 0 || static_cast<size_t>(vert3) >= vertices.size()) {
+std::cerr << "Warning: Invalid vertex index in glDrawLocal for face." << std::endl;
+continue; // Skip drawing this triangle if indices are invalid
+}
 
-      glVertex3dv(&vertices[vert2][0]);
 
-      if (!normals.empty())
-        glNormal3dv(&normals[vert3][0]);
+if (vertNorms && !normals.empty()) {
+// Use per-vertex normals if available and indices are valid
+if (static_cast<size_t>(vert1) < normals.size() &&
+static_cast<size_t>(vert2) < normals.size() &&
+static_cast<size_t>(vert3) < normals.size()) {
+glNormal3dv(&normals[vert1][0]);
+glVertex3dv(&vertices[vert1][0]);
 
-      glVertex3dv(&vertices[vert3][0]);
-    }
-    glEnd();
+glNormal3dv(&normals[vert2][0]);
+glVertex3dv(&vertices[vert2][0]);
 
-    glEndList();
-  }
+glNormal3dv(&normals[vert3][0]);
+glVertex3dv(&vertices[vert3][0]);
+} else {
+// Fallback if normal indices are somehow out of sync (should not happen if doubleCheck passes)
+glm::dvec3 faceNormal = face->getNormal();
+glNormal3dv(&faceNormal[0]);
+glVertex3dv(&vertices[vert1][0]);
+glVertex3dv(&vertices[vert2][0]);
+glVertex3dv(&vertices[vert3][0]);
+std::cerr << "Warning: Vertex normal index out of bounds in glDrawLocal." << std::endl;
+}
+} else {
+// Use face normal if per-vertex normals are not available/generated
+glm::dvec3 faceNormal = face->getNormal();
+glNormal3dv(&faceNormal[0]);
 
-  glCallList(displayList);
+glVertex3dv(&vertices[vert1][0]);
+glVertex3dv(&vertices[vert2][0]);
+glVertex3dv(&vertices[vert3][0]);
+}
+}
+glEnd();
+
+if (useDisplayList) {
+glEndList();
+glCallList(static_cast<GLuint>(displayList)); // Call the newly created list
+}
 }
 
 void PointLight::glDrawLight(GLenum lightID) const {
