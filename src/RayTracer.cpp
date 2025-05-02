@@ -31,11 +31,129 @@ extern TraceUI *traceUI;
 // set in the "trace single ray" mode in TraceGLWindow, for example.
 bool debugMode = false;
 
+// Add a thread-local random number generator
+thread_local std::mt19937 rng(std::hash<std::thread::id>{}(std::this_thread::get_id()));
+thread_local std::uniform_real_distribution<double> distribution(0.0, 1.0);
+
+// Helper function to get random number between 0 and 1
+double getRandomDouble() {
+  return distribution(rng);
+}
+
+// Generate a sample from a GGX distribution with given roughness
+glm::dvec3 sampleGGX(const glm::dvec3& N, const glm::dvec3& V, double roughness, double& pdf) {
+  double r1 = getRandomDouble();
+  double r2 = getRandomDouble();
+  
+  // Compute half-vector
+  double alpha = roughness * roughness;
+  double phi = 2.0 * M_PI * r1;
+  
+  // Map from uniform to GGX distribution
+  double cosTheta = sqrt((1.0 - r2) / (1.0 + (alpha*alpha - 1.0) * r2));
+  double sinTheta = sqrt(1.0 - cosTheta * cosTheta);
+  
+  // Convert to Cartesian coordinates in tangent space
+  glm::dvec3 H;
+  H.x = sinTheta * cos(phi);
+  H.y = sinTheta * sin(phi);
+  H.z = cosTheta;
+  
+  // Create tangent space
+  glm::dvec3 up = abs(N.z) < 0.999 ? glm::dvec3(0, 0, 1) : glm::dvec3(1, 0, 0);
+  glm::dvec3 tangent = glm::normalize(glm::cross(up, N));
+  glm::dvec3 bitangent = glm::cross(N, tangent);
+  
+  // Convert from tangent space to world space
+  glm::dvec3 worldH = tangent * H.x + bitangent * H.y + N * H.z;
+  worldH = glm::normalize(worldH);
+  
+  // Calculate PDF for the half-vector
+  double NdotH = glm::max(glm::dot(N, worldH), 0.0);
+  
+  // GGX distribution
+  double alpha2 = alpha * alpha;
+  double denom = NdotH * NdotH * (alpha2 - 1.0) + 1.0;
+  double D = alpha2 / (M_PI * denom * denom);
+  
+  // Convert half-vector PDF to light direction PDF
+  double HdotV = glm::max(glm::dot(worldH, V), 0.0);
+  
+  // PDF = D * NdotH / (4 * HdotV)
+  pdf = D * NdotH / (4.0 * HdotV);
+  
+  // Reflect view direction around half-vector to get light direction
+  return glm::reflect(-V, worldH);
+}
+
+// Calculate the full GGX BRDF
+glm::dvec3 evaluateGGXBRDF(const glm::dvec3& N, const glm::dvec3& V, const glm::dvec3& L, 
+                        const glm::dvec3& ks, double roughness, double& pdf) {
+  // Calculate half-vector
+  glm::dvec3 H = glm::normalize(V + L);
+  
+  // Various dot products needed
+  double NdotL = glm::max(glm::dot(N, L), 0.0);
+  double NdotV = glm::max(glm::dot(N, V), 0.0);
+  double NdotH = glm::max(glm::dot(N, H), 0.0);
+  double HdotV = glm::max(glm::dot(H, V), 0.0);
+  
+  if (NdotL <= 0.0 || NdotV <= 0.0) {
+      pdf = 0.0;
+      return glm::dvec3(0.0);
+  }
+  
+  // Roughness-related terms
+  double alpha = roughness * roughness;
+  double alpha2 = alpha * alpha;
+  
+  // D term (Normal distribution function)
+  double denom = NdotH * NdotH * (alpha2 - 1.0) + 1.0;
+  double D = alpha2 / (M_PI * denom * denom);
+  
+  // G term (Geometric shadowing)
+  // Smith's method with GGX
+  double G1_V = 2.0 * NdotV / (NdotV + sqrt(alpha2 + (1.0 - alpha2) * NdotV * NdotV));
+  double G1_L = 2.0 * NdotL / (NdotL + sqrt(alpha2 + (1.0 - alpha2) * NdotL * NdotL));
+  double G = G1_V * G1_L;
+  
+  // F term (Fresnel) - Schlick approximation
+  // Assume F0 is the specular color
+  glm::dvec3 F = ks + (glm::dvec3(1.0) - ks) * pow(1.0 - HdotV, 5.0);
+  
+  // Put it all together
+  glm::dvec3 brdf = (D * G * F) / (4.0 * NdotV * NdotL);
+  
+  // Calculate PDF for the half-vector
+  pdf = D * NdotH / (4.0 * HdotV);
+  
+  return brdf;
+}
+
+// Compute GGX PDF for a given direction
+double ggxPDF(const glm::dvec3& N, const glm::dvec3& H, const glm::dvec3& V, double roughness) {
+  double alpha = roughness * roughness;
+  double NdotH = glm::max(glm::dot(N, H), 0.0);
+  double HdotV = glm::max(glm::dot(H, V), 0.0);
+  
+  // GGX distribution
+  double alpha2 = alpha * alpha;
+  double denom = NdotH * NdotH * (alpha2 - 1.0) + 1.0;
+  double D = alpha2 / (M_PI * denom * denom);
+  
+  // PDF = D * NdotH / (4 * HdotV)
+  return D * NdotH / (4.0 * HdotV);
+}
+
+// Calculate Fresnel reflectance using Schlick's approximation
+glm::dvec3 fresnelSchlick(const glm::dvec3& F0, double cosTheta) {
+  return F0 + (glm::dvec3(1.0) - F0) * pow(1.0 - cosTheta, 5.0);
+}
+
 // Trace a top-level ray through pixel(i,j), i.e. normalized window coordinates
 // (x,y), through the projection plane, and out into the scene. All we do is
 // enter the main ray-tracing method, getting things started by plugging in an
 // initial ray weight of (0.0,0.0,0.0) and an initial recursion depth of 0.
-
 glm::dvec3 RayTracer::trace(double x, double y) {
   // Clear out the ray cache in the scene for debugging purposes
   if (TraceUI::m_debug) {
@@ -43,7 +161,7 @@ glm::dvec3 RayTracer::trace(double x, double y) {
   }
   
   // Get the actual sample count from UI
-  int samplesPerPixel = 256;
+  int samplesPerPixel = traceUI->getSuperSamples(); // Use UI value instead of hardcoded
   if (samplesPerPixel <= 0) samplesPerPixel = 1; // Ensure at least one sample
   
   glm::dvec3 pixelColor(0.0, 0.0, 0.0);
@@ -67,52 +185,8 @@ glm::dvec3 RayTracer::trace(double x, double y) {
   // Average the samples
   pixelColor /= static_cast<double>(samplesPerPixel);
   
+  // Only clamp the final pixel color, not individual samples
   return glm::clamp(pixelColor, 0.0, 1.0);
-}
-// Generate a sample from a GGX distribution with given roughness
-glm::dvec3 sampleGGX(const glm::dvec3& N, const glm::dvec3& V, double roughness) {
-  double r1 = static_cast<double>(rand()) / RAND_MAX;
-  double r2 = static_cast<double>(rand()) / RAND_MAX;
-  
-  // Compute half-vector
-  double alpha = roughness * roughness;
-  double phi = 2.0 * M_PI * r1;
-  
-  // Map from uniform to GGX distribution
-  double cosTheta = sqrt((1.0 - r2) / (1.0 + (alpha*alpha - 1.0) * r2));
-  double sinTheta = sqrt(1.0 - cosTheta * cosTheta);
-  
-  // Convert to Cartesian coordinates in tangent space
-  glm::dvec3 H;
-  H.x = sinTheta * cos(phi);
-  H.y = sinTheta * sin(phi);
-  H.z = cosTheta;
-  
-  // Create tangent space
-  glm::dvec3 up = abs(N.z) < 0.999 ? glm::dvec3(0, 0, 1) : glm::dvec3(1, 0, 0);
-  glm::dvec3 tangent = glm::normalize(glm::cross(up, N));
-  glm::dvec3 bitangent = glm::cross(N, tangent);
-  
-  // Convert from tangent space to world space
-  glm::dvec3 worldH = tangent * H.x + bitangent * H.y + N * H.z;
-  
-  // Reflect view direction around half-vector to get light direction
-  return glm::reflect(-V, worldH);
-}
-
-// Compute GGX PDF for a given direction
-double ggxPDF(const glm::dvec3& N, const glm::dvec3& H, const glm::dvec3& V, double roughness) {
-  double alpha = roughness * roughness;
-  double NdotH = glm::max(glm::dot(N, H), 0.0);
-  double HdotV = glm::max(glm::dot(H, V), 0.0);
-  
-  // GGX distribution
-  double alpha2 = alpha * alpha;
-  double denom = NdotH * NdotH * (alpha2 - 1.0) + 1.0;
-  double D = alpha2 / (M_PI * denom * denom);
-  
-  // PDF = D * NdotH / (4 * HdotV)
-  return D * NdotH / (4.0 * HdotV);
 }
 
 glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int maxDepth, double &t) {
@@ -141,7 +215,6 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int maxDepth, d
           }
         } else {
           // Add default environment lighting for rays that miss geometry
-          // This is critical - missing rays should contribute some light (sky/ambient)
           L += throughput * glm::dvec3(0.15, 0.15, 0.25); // Add a subtle blue sky color
         }
       }
@@ -204,7 +277,7 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int maxDepth, d
       const auto& lights = scene->getAllLights();
       if (!lights.empty()) {
         // Sample all lights for better convergence
-        double lightContrib = 2.0; // Adjust this multiplier if needed
+        double lightContrib = 1.0; // Changed from 2.0 to be physically correct
         for (const Light* light : lights) {
           glm::dvec3 dirToLight = light->getDirection(hitPoint);
           glm::dvec3 lightColor = light->getColor() * lightContrib;
@@ -229,16 +302,24 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int maxDepth, d
     }
     
     // Randomly select which BRDF to sample based on material properties
-    double random = static_cast<double>(rand()) / RAND_MAX;
+    double random = getRandomDouble(); // Use our new random function
     double accumulatedProb = 0.0;
     
     specularBounce = false;  // Reset specular flag
 
     if (random < (accumulatedProb += probReflect) && material.Refl()) {
+      // Calculate Fresnel reflectance for perfect specular reflection
+      // For simplicity, we'll use the material's kr as F0
+      glm::dvec3 F0 = material.kr(i);
+      double cosTheta = glm::max(glm::dot(-D, N), 0.0);
+      glm::dvec3 F = fresnelSchlick(F0, cosTheta);
+      
       // Perfect specular reflection
       glm::dvec3 R = glm::normalize(glm::reflect(D, N));
       currentRay = ray(hitPoint + N * RAY_EPSILON, R, currentRay.getAtten(), ray::REFLECTION);
-      throughput *= material.kr(i) / probReflect;
+      
+      // Update throughput with Fresnel term, divided by selection probability
+      throughput *= F / probReflect;
       specularBounce = true;
     }
     else if (random < (accumulatedProb += probRefract) && material.Trans()) {
@@ -251,47 +332,78 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int maxDepth, d
       }
 
       double eta = n1 / n2;
-      glm::dvec3 T = glm::normalize(glm::refract(D, N, eta));
-
-      if (glm::length(T) > 0.0) {
-        // Normal refraction case
-        currentRay = ray(hitPoint - N * RAY_EPSILON, T, currentRay.getAtten(), ray::REFRACTION);
-
-        // Calculate transmittance (Beer's law) if we're exiting a medium
-        glm::dvec3 transmittance(1.0);
-        if (!entering) {
-          double d = glm::distance(currentRay.getPosition(), hitPoint);
-          // Use absorption coefficient to limit extreme darkening
-          glm::dvec3 absorb = glm::min(material.kt(i), glm::dvec3(5.0));
-          transmittance = glm::exp(-absorb * d);
-        }
-
-        throughput *= transmittance * material.kt(i) / probRefract;
-        specularBounce = true;
-      }
-      else {
-        // Total internal reflection case
+      double cosTheta = glm::min(glm::abs(glm::dot(D, N)), 1.0);
+      
+      // Compute Fresnel factor for dielectrics
+      double r0 = ((n1 - n2) / (n1 + n2)) * ((n1 - n2) / (n1 + n2));
+      double fresnel = r0 + (1.0 - r0) * pow(1.0 - cosTheta, 5.0);
+      
+      // Decide whether to reflect or refract based on Fresnel
+      if (getRandomDouble() < fresnel) {
+        // Total internal reflection or Fresnel reflection
         glm::dvec3 R = glm::normalize(glm::reflect(D, N));
         currentRay = ray(hitPoint + N * RAY_EPSILON, R, currentRay.getAtten(), ray::REFLECTION);
-        throughput *= material.kr(i) / (probReflect > 0.0 ? probReflect : 1.0);
+        
+        // We're reflecting due to Fresnel, but we chose the refraction path,
+        // so divide by probRefract to maintain energy balance
+        throughput *= material.kt(i) / probRefract;
         specularBounce = true;
+      } else {
+        // Normal refraction case
+        glm::dvec3 T = glm::normalize(glm::refract(D, N, eta));
+        
+        if (glm::length(T) > 0.0) {
+          currentRay = ray(hitPoint - N * RAY_EPSILON, T, currentRay.getAtten(), ray::REFRACTION);
+          
+          // Calculate transmittance (Beer's law) if we're exiting a medium
+          glm::dvec3 transmittance(1.0);
+          if (!entering) {
+            double d = glm::distance(currentRay.getPosition(), hitPoint);
+            
+            // Use absorption coefficient based on material properties
+            // For simplicity, derive it from kt, but this should ideally be a separate property
+            // Convert kt to an absorption coefficient - this is a simplified approximation
+            // Lower kt (less transmission) = higher absorption
+            glm::dvec3 absorptionCoef = glm::dvec3(2.0) - material.kt(i);
+            absorptionCoef = glm::clamp(absorptionCoef, glm::dvec3(0.0), glm::dvec3(10.0));
+            transmittance = glm::exp(-absorptionCoef * d);
+          }
+          
+          throughput *= transmittance * material.kt(i) / probRefract;
+          specularBounce = true;
+        } else {
+          // This shouldn't happen if we handled Fresnel correctly,
+          // but just in case - handle total internal reflection
+          glm::dvec3 R = glm::normalize(glm::reflect(D, N));
+          currentRay = ray(hitPoint + N * RAY_EPSILON, R, currentRay.getAtten(), ray::REFLECTION);
+          throughput *= material.kt(i) / probRefract;
+          specularBounce = true;
+        }
       }
     }
     else if (random < (accumulatedProb += probSpecular) && ksLength > 0.0) {
       // Glossy specular reflection
-      double roughness = 1.0 - glm::pow(material.shininess(i) / 128.0, 0.5);
+      // Convert shininess to roughness in a more standard way
+      double roughness = sqrt(2.0 / (2.0 + material.shininess(i)));
       roughness = glm::clamp(roughness, 0.01, 0.99);
       
       glm::dvec3 V = -D;  // View direction
-      glm::dvec3 L = sampleGGX(N, V, roughness);
+      double pdf;
+      glm::dvec3 L = sampleGGX(N, V, roughness, pdf);
       
-      if (glm::dot(L, N) > 0.0) {
+      if (glm::dot(L, N) > 0.0 && pdf > 0.0) {
+        // Evaluate the full GGX BRDF
+        glm::dvec3 brdf = evaluateGGXBRDF(N, V, L, material.ks(i), roughness, pdf);
+        
         currentRay = ray(hitPoint + N * RAY_EPSILON, L, currentRay.getAtten(), ray::REFLECTION);
         double NdotL = glm::max(glm::dot(N, L), 0.0);
-        throughput *= material.ks(i) * NdotL / probSpecular;
+        
+        // Correct throughput calculation for GGX
+        // throughput = throughput * brdf * NdotL / pdf / probSpecular
+        throughput *= (brdf * NdotL) / (pdf * probSpecular);
         specularBounce = true;
       } else {
-        break; // Invalid direction
+        break; // Invalid direction or zero PDF
       }
     }
     else {
@@ -302,8 +414,8 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int maxDepth, d
       glm::dvec3 v = glm::cross(w, u);
       
       // Cosine-weighted sample on hemisphere
-      double r1 = static_cast<double>(rand()) / RAND_MAX;
-      double r2 = static_cast<double>(rand()) / RAND_MAX;
+      double r1 = getRandomDouble();
+      double r2 = getRandomDouble();
       double phi = 2.0 * M_PI * r1;
       double theta = sqrt(r2);
       double x = theta * cos(phi);
@@ -314,6 +426,10 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int maxDepth, d
       glm::dvec3 sampledDir = glm::normalize(u * x + v * y + w * z);
       currentRay = ray(hitPoint + N * RAY_EPSILON, sampledDir, currentRay.getAtten(), ray::VISIBILITY);
       
+      // Calculate BRDF = kd / π
+      // PDF for cosine-weighted hemisphere sampling = cos(θ) / π = NdotL / π
+      // Correct throughput calculation: throughput = throughput * (BRDF * NdotL) / PDF / probDiffuse
+      // With our sampling: (kd / π * NdotL) / (NdotL / π) / probDiffuse = kd / probDiffuse
       throughput *= material.kd(i) / probDiffuse;
     }
 
@@ -325,15 +441,18 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int maxDepth, d
       // Ensure some minimum chance to continue for dark paths
       continueProbability = std::max(continueProbability, 0.2);
       
-      if (static_cast<double>(rand()) / RAND_MAX > continueProbability) {
+      if (getRandomDouble() > continueProbability) {
         break;
       }
       throughput /= continueProbability;
     }
   }
 
-  return glm::clamp(L, 0.0, 1.0);
+  // Remove clamping here - we want to preserve the full dynamic range
+  // until we average all samples for a pixel
+  return L;
 }
+
 RayTracer::RayTracer()
     : scene(nullptr), buffer(0), thresh(0), buffer_width(0), buffer_height(0),
       m_bBufferReady(false) {
@@ -445,7 +564,8 @@ void RayTracer::traceSetup(int w, int h) {
   bvhMaxDepth = traceUI->getMaxDepth();
   bvhTargetLeafSize = traceUI->getLeafSize();
 
-  generateStratifiedSamples(16);  // 4x4=16 samples per sequence
+  int sampleDimension = std::max(1, static_cast<int>(std::sqrt(samples)));
+  generateStratifiedSamples(sampleDimension);
 
   if (traceUI->bvhSwitch()) {
     scene->buildBVH(bvhMaxDepth, bvhTargetLeafSize);
@@ -605,7 +725,6 @@ void RayTracer::setPixel(int i, int j, glm::dvec3 color) {
   pixel[2] = (int)(255.0 * color[2]);
 }
 
-// Add these implementation methods
 
 void RayTracer::generateStratifiedSamples(int samplesPerDimension) {
   int totalSamples = samplesPerDimension * samplesPerDimension;
@@ -614,8 +733,8 @@ void RayTracer::generateStratifiedSamples(int samplesPerDimension) {
   // Generate stratified samples
   for (int y = 0; y < samplesPerDimension; ++y) {
     for (int x = 0; x < samplesPerDimension; ++x) {
-      double jitterX = static_cast<double>(rand()) / RAND_MAX;
-      double jitterY = static_cast<double>(rand()) / RAND_MAX;
+      double jitterX = getRandomDouble(); // Use thread-safe random
+      double jitterY = getRandomDouble();
       
       stratifiedSamples[y * samplesPerDimension + x] = glm::dvec2(
         (x + jitterX) / samplesPerDimension,
@@ -626,7 +745,7 @@ void RayTracer::generateStratifiedSamples(int samplesPerDimension) {
   
   // Shuffle the samples for better distribution
   for (int i = totalSamples - 1; i > 0; --i) {
-    int j = rand() % (i + 1);
+    int j = static_cast<int>(getRandomDouble() * (i + 1));
     std::swap(stratifiedSamples[i], stratifiedSamples[j]);
   }
   
