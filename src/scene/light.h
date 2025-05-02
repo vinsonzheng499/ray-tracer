@@ -90,4 +90,55 @@ public:
 protected:
 };
 
+// After the PointLight class definition, add:
+class AreaLight : public Light {
+  public:
+    AreaLight(Scene *scene, const glm::dvec3 &pos, const glm::dvec3 &u_axis, 
+             const glm::dvec3 &v_axis, const glm::dvec3 &color,
+             float constantAttenuationTerm = 0.0f, 
+             float linearAttenuationTerm = 0.0f,
+             float quadraticAttenuationTerm = 1.0f)
+        : Light(scene, color), position(pos), u_dir(glm::normalize(u_axis)), 
+          v_dir(glm::normalize(v_axis)), u_len(glm::length(u_axis)), 
+          v_len(glm::length(v_axis)), 
+          constantTerm(constantAttenuationTerm),
+          linearTerm(linearAttenuationTerm),
+          quadraticTerm(quadraticAttenuationTerm) {
+            normal = glm::normalize(glm::cross(u_dir, v_dir));
+            area = u_len * v_len;
+          }
+  
+    virtual glm::dvec3 shadowAttenuation(const ray &r, const glm::dvec3 &pos) const;
+    virtual double distanceAttenuation(const glm::dvec3 &P) const;
+    virtual glm::dvec3 getColor() const;
+    virtual glm::dvec3 getDirection(const glm::dvec3 &P) const;
+  
+    // Sample a random point on the area light
+    glm::dvec3 sample() const;
+    
+    // Get PDF value for a point on the light
+    double getPDF() const { return 1.0 / area; }
+    
+    // Get the normal of the light surface
+    glm::dvec3 getNormal() const { return normal; }
+  
+  protected:
+    glm::dvec3 position;  // Center position
+    glm::dvec3 u_dir;     // Normalized u-direction
+    glm::dvec3 v_dir;     // Normalized v-direction  
+    glm::dvec3 normal;    // Surface normal
+    double u_len;         // Length of u-axis
+    double v_len;         // Length of v-axis
+    double area;          // Area of light
+  
+    // Attenuation constants
+    float constantTerm;
+    float linearTerm;
+    float quadraticTerm;
+  
+  public:
+    void glDrawLight(GLenum lightID) const;
+    void glDrawLight() const;
+  };
+
 #endif // __LIGHT_H__

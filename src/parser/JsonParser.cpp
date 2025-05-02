@@ -344,6 +344,23 @@ std::vector<Geometry *> parseTransform(const json &j, ParseData &pd) {
   return geoms;
 }
 
+AreaLight *parseAreaLight(const json &j, ParseData &pd) {
+  glm::dvec3 color = j.at("color").get<glm::dvec3>();
+  glm::dvec3 position = j.at("position").get<glm::dvec3>();
+  glm::dvec3 u_axis = j.at("u_axis").get<glm::dvec3>();
+  glm::dvec3 v_axis = j.at("v_axis").get<glm::dvec3>();
+  
+  float atten_pow_0 = 0.0f;
+  float atten_pow_1 = 0.0f;
+  float atten_pow_2 = 1.0f;
+  IGNORE_MISSING(j.at("constant_attenuation_coeff").get_to(atten_pow_0));
+  IGNORE_MISSING(j.at("linear_attenuation_coeff").get_to(atten_pow_1));
+  IGNORE_MISSING(j.at("quadratic_attenuation_coeff").get_to(atten_pow_2));
+  
+  return new AreaLight(pd.s, position, u_axis, v_axis, color, 
+                      atten_pow_0, atten_pow_1, atten_pow_2);
+}
+
 Scene *JsonParser::parseScene() {
   // Allow comments and exceptions while parsing
   json j = json::parse(this->contents);
@@ -370,6 +387,8 @@ Scene *JsonParser::parseScene() {
       scene->add(parseDirectionalLight(val, pd));
     } else if (key == "point_light") {
       scene->add(parsePointLight(val, pd));
+    } else if (key == "area_light") {
+      scene->add(parseAreaLight(val, pd));
     } else if (isTransformKey(key)) {
       auto geoms = parseTransform(object, pd);
       for (auto g : geoms) {

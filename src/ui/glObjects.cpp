@@ -656,3 +656,83 @@ void DirectionalLight::glDrawLight() const {
   glEnable(GL_LIGHTING);
   glPopMatrix();
 }
+
+// Add after PointLight::glDrawLight() implementation
+
+void AreaLight::glDrawLight(GLenum lightID) const {
+  // Position is at the center of the area light
+  GLfloat pos[4];
+  pos[0] = GLfloat(position[0]);
+  pos[1] = GLfloat(position[1]);
+  pos[2] = GLfloat(position[2]);
+  pos[3] = 1.0f;
+  glLightfv(lightID, GL_POSITION, pos);
+
+  // Set light color
+  GLfloat fColor[4];
+  fColor[0] = GLfloat(color[0]);
+  fColor[1] = GLfloat(color[1]);
+  fColor[2] = GLfloat(color[2]);
+  fColor[3] = 1.0f;
+  glLightfv(lightID, GL_DIFFUSE, fColor);
+  glLightfv(lightID, GL_SPECULAR, fColor);
+
+  // Apply attenuation
+  glLightf(lightID, GL_CONSTANT_ATTENUATION, constantTerm);
+  glLightf(lightID, GL_LINEAR_ATTENUATION, linearTerm);
+  glLightf(lightID, GL_QUADRATIC_ATTENUATION, quadraticTerm);
+}
+
+void AreaLight::glDrawLight() const {
+  GLfloat fColor[4];
+  fColor[0] = GLfloat(color[0]);
+  fColor[1] = GLfloat(color[1]);
+  fColor[2] = GLfloat(color[2]);
+  fColor[3] = 1.0f;
+
+  glPushMatrix();
+  
+  // Move to the light position
+  glTranslated(position[0], position[1], position[2]);
+  
+  // Disable lighting for drawing the representation
+  glDisable(GL_LIGHTING);
+  glColor3fv(fColor);
+  
+  // Draw the area light as a filled rectangle
+  glBegin(GL_QUADS);
+    // Calculate the four corners of the light
+    glm::dvec3 corner1 = -u_dir * (u_len/2.0) - v_dir * (v_len/2.0);
+    glm::dvec3 corner2 = u_dir * (u_len/2.0) - v_dir * (v_len/2.0);
+    glm::dvec3 corner3 = u_dir * (u_len/2.0) + v_dir * (v_len/2.0);
+    glm::dvec3 corner4 = -u_dir * (u_len/2.0) + v_dir * (v_len/2.0);
+    
+    // Draw the rectangle with normal pointing back along its orientation
+    glNormal3dv(&normal[0]);
+    glVertex3dv(&corner1[0]);
+    glVertex3dv(&corner2[0]);
+    glVertex3dv(&corner3[0]);
+    glVertex3dv(&corner4[0]);
+  glEnd();
+  
+  // Draw a border around the light
+  glBegin(GL_LINE_LOOP);
+    glVertex3dv(&corner1[0]);
+    glVertex3dv(&corner2[0]);
+    glVertex3dv(&corner3[0]);
+    glVertex3dv(&corner4[0]);
+  glEnd();
+  
+  // Draw the normal vector to show the light's orientation
+  glBegin(GL_LINES);
+    glm::dvec3 center(0.0, 0.0, 0.0);
+    glm::dvec3 normalEnd = normal * (std::max(u_len, v_len) * 0.5);
+    glVertex3dv(&center[0]);
+    glVertex3dv(&normalEnd[0]);
+  glEnd();
+  
+  // Re-enable lighting
+  glEnable(GL_LIGHTING);
+  
+  glPopMatrix();
+}

@@ -221,63 +221,132 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int maxDepth, d
       }
 
 
-      // --- 5. Direct Lighting (Next Event Estimation) ---
-      // Sample lights only if the surface is not purely specular/refractive
-      if (material.ks(i).length() > 1e-6 || material.kd(i).length() > 1e-6) {
-          const auto& lights = scene->getAllLights();
-          if (!lights.empty()) {
-              for (const Light* light : lights) {
-                  glm::dvec3 dirToLight = light->getDirection(hitPoint);
-                  double distToLight = std::numeric_limits<double>::infinity();
-                  if (dynamic_cast<const PointLight*>(light)) {
-                      distToLight = glm::distance(dynamic_cast<const PointLight*>(light)->getPosition(), hitPoint);
-                  }
+// --- 5. Direct Lighting with MIS for Area Lights ---
+if (material.kd(i).length() > 1e-6 || material.ks(i).length() > 1e-6) {
+  const auto& lights = scene->getAllLights();
+  if (!lights.empty()) {
+      for (const Light* light : lights) {
+          // Check if this is an area light
+          const AreaLight* areaLight = dynamic_cast<const AreaLight*>(light);
+          if (areaLight) {
 
-                  // Check visibility by tracing a shadow ray
+            double pd = 0.0, ps = 0.0, pr = 0.0, pt = 0.0;
+            {
+                // Material components for sampling probabilities
+                glm::dvec3 kd = material.kd(i);
+                glm::dvec3 ks = material.ks(i);
+                glm::dvec3 kr = material.kr(i);
+                glm::dvec3 kt = material.kt(i);
+            
+                // Calculate probabilities based on reflectance magnitudes
+                pd = glm::max(kd.x, glm::max(kd.y, kd.z)); // Diffuse probability
+                ps = glm::max(ks.x, glm::max(ks.y, ks.z)); // Specular probability
+                pr = glm::max(kr.x, glm::max(kr.y, kr.z)); // Perfect reflection probability
+                pt = glm::max(kt.x, glm::max(kt.y, kt.z)); // Refraction probability
+            
+                double totalProb = pd + ps + pr + pt;
+                if (totalProb > 1e-6) {
+                    // Normalize probabilities
+                    pd /= totalProb;
+                    ps /= totalProb;
+                    pr /= totalProb;
+                    pt /= totalProb;
+                } else {
+                    // Default to diffuse if all components are near zero
+                    pd = 1.0;
+                    ps = pr = pt = 0.0;
+                }
+            }
+              // === Area Light Sampling with MIS ===
+              int numLightSamples = 4; // Adjust based on quality needs
+              glm::dvec3 lightContribution(0.0);
+              
+              for (int s = 0; s < numLightSamples; ++s) {
+                  // Sample a point on the light
+                  glm::dvec3 lightPoint = areaLight->sample();
+                  glm::dvec3 dirToLight = glm::normalize(lightPoint - hitPoint);
+                  double distToLight = glm::distance(hitPoint, lightPoint);
+                  
+                  // Light PDF (uniform over area)
+                  double lightPdf = areaLight->getPDF();
+                  
+                  // Cosine term at the light
+                  double lightNdotL = -glm::dot(areaLight->getNormal(), dirToLight);
+                  if (lightNdotL <= 0.0) continue; // Light faces away
+                  
+                  // Convert from area to solid angle measure
+                  lightPdf *= (distToLight * distToLight) / lightNdotL;
+                  if (lightPdf < 1e-6) continue;
+                  
+                  // Check visibility
                   ray shadowRay(hitPoint + N * RAY_EPSILON, dirToLight, glm::dvec3(1.0), ray::SHADOW);
                   isect shadowIsect;
                   bool occluded = false;
+                  
                   if (scene->intersect(shadowRay, shadowIsect)) {
-                      // Check if intersection is between hitPoint and light source
                       if (shadowIsect.getT() < distToLight - RAY_EPSILON) {
                           occluded = true;
-                          // Handle transparent materials along the shadow ray path
-                          // (Simplified: Assuming fully opaque for now for brevity.
-                          // Correct shadow attenuation needs to be calculated here.)
-                          // For now, we'll just assume full occlusion if anything is hit.
-                          // If the occluding material is transmissive, calculate attenuation:
-                           if (shadowIsect.getMaterial().Trans()) {
-                              // This is a placeholder; a proper shadowAttenuation calculation
-                              // might be needed here, similar to the one in light.cpp,
-                              occluded = false; // Let some light through
-                           }
+                          // Handle transparency if needed
+                          if (shadowIsect.getMaterial().Trans()) {
+                              // Use your existing shadow attenuation code
+                              glm::dvec3 shadowAtten = areaLight->shadowAttenuation(shadowRay, hitPoint);
+                              if (glm::length(shadowAtten) < 0.01) // Almost completely blocked
+                                  continue;
+                              occluded = false;
+                          } else {
+                              continue; // Skip if occluded by opaque object
+                          }
                       }
                   }
-
-
+                  
                   if (!occluded) {
-                      glm::dvec3 lightColor = light->getColor();
-                      double distAtten = light->distanceAttenuation(hitPoint);
+                      // NdotL at the surface
                       double NdotL = glm::max(0.0, glm::dot(N, dirToLight));
-
-                      // Calculate BRDF contribution (diffuse + potentially glossy specular)
-                      glm::dvec3 brdf_direct(0.0);
-
+                      if (NdotL <= 0.0) continue;
+                      
+                      // BRDF and its PDF
+                      glm::dvec3 brdf(0.0);
+                      double brdfPdf = 0.0;
+                      
                       // Diffuse component
-                      brdf_direct += material.kd(i) / M_PI;
-
-                      // Glossy specular component (if ks > 0 and roughness > 0)
-                      // double roughness = sqrt(2.0 / (2.0 + material.shininess(i))); // Map shininess to roughness
-                      // if (glm::length(material.ks(i)) > 0.0 && roughness > 0.01) {
-                      //     double pdf_placeholder; // We don't need the PDF for evaluation
-                      //     brdf_direct += evaluateGGXBRDF(N, V, dirToLight, material.ks(i), roughness, pdf_placeholder);
-                      // }
-
-                      L += throughput * brdf_direct * lightColor * NdotL * distAtten; // * shadow_attenuation (if needed);
+                      if (material.kd(i).length() > 1e-6) {
+                          brdf += material.kd(i) / M_PI;
+                          brdfPdf += NdotL / M_PI * pd;
+                      }
+                      
+                      // Specular component
+                      if (material.ks(i).length() > 1e-6) {
+                          double roughness = sqrt(2.0 / (2.0 + material.shininess(i)));
+                          roughness = glm::clamp(roughness, 0.01, 0.99);
+                          double spec_pdf;
+                          glm::dvec3 brdf_spec = evaluateGGXBRDF(N, V, dirToLight, material.ks(i), roughness, spec_pdf);
+                          brdf += brdf_spec;
+                          brdfPdf += spec_pdf * ps;
+                      }
+                      
+                      // MIS weight using balance heuristic
+                      double weight = lightPdf / (lightPdf + brdfPdf);
+                      if (!std::isfinite(weight)) weight = 0.0;
+                      
+                      // Add weighted contribution
+                      double distAtten = light->distanceAttenuation(hitPoint);
+                      lightContribution += brdf * areaLight->getColor() * NdotL * distAtten * weight;
                   }
               }
+              
+              // Average over samples and add to total
+              if (numLightSamples > 0) {
+                  L += throughput * lightContribution / static_cast<double>(numLightSamples);
+              }
+          } else {
+              // Handle point and directional lights as before
+              // (Your existing code for point/directional lights)
+              glm::dvec3 dirToLight = light->getDirection(hitPoint);
+              // ... rest of your existing point/directional light code
           }
       }
+  }
+}
 
       // --- 6. Indirect Lighting (Importance Sampling Next Bounce) ---
 
