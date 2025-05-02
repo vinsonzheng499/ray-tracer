@@ -37,227 +37,303 @@ bool debugMode = false;
 // initial ray weight of (0.0,0.0,0.0) and an initial recursion depth of 0.
 
 glm::dvec3 RayTracer::trace(double x, double y) {
-  // Clear out the ray cache in the scene for debugging purposes,
+  // Clear out the ray cache in the scene for debugging purposes
   if (TraceUI::m_debug) {
     scene->clearIntersectCache();
   }
-
-  ray r(glm::dvec3(0, 0, 0), glm::dvec3(0, 0, 0), glm::dvec3(1, 1, 1),
-        ray::VISIBILITY);
-  scene->getCamera().rayThrough(x, y, r);
-  double dummy;
-  glm::dvec3 ret =
-      traceRay(r, glm::dvec3(1.0, 1.0, 1.0), traceUI->getDepth(), dummy);
-  ret = glm::clamp(ret, 0.0, 1.0);
-  return ret;
-}
-
-glm::dvec3 RayTracer::tracePixel(int i, int j) {
-  glm::dvec3 col(0, 0, 0);
-
-  if (!sceneLoaded())
-    return col;
-
-  double x = double(i) / double(buffer_width);
-  double y = double(j) / double(buffer_height);
-
-  unsigned char *pixel = buffer.data() + (i + j * buffer_width) * 3;
-  col = trace(x, y);
-
-  pixel[0] = (int)(255.0 * col[0]);
-  pixel[1] = (int)(255.0 * col[1]);
-  pixel[2] = (int)(255.0 * col[2]);
-  return col;
-}
-
-#define VERBOSE 0
-
-// Do recursive ray tracing! You'll want to insert a lot of code here (or places
-// called from here) to handle reflection, refraction, etc etc.
-glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int depth,
-                               double &t) {
-  isect i;
-  glm::dvec3 colorC;
-#if VERBOSE
-  std::cerr << "== current depth: " << depth << std::endl;
-#endif
-
-  // Early termination check based on contribution threshold
-  if (glm::all(glm::lessThan(thresh, glm::dvec3(this->thresh)))) {
-    return glm::dvec3(0.0, 0.0, 0.0);
+  
+  // Get the actual sample count from UI
+  int samplesPerPixel = 256;
+  if (samplesPerPixel <= 0) samplesPerPixel = 1; // Ensure at least one sample
+  
+  glm::dvec3 pixelColor(0.0, 0.0, 0.0);
+  
+  for (int s = 0; s < samplesPerPixel; s++) {
+    // Get stratified sample for jitter
+    glm::dvec2 sample = getNextSample2D();
+    
+    // Apply jitter within the pixel
+    double jitterX = (sample.x - 0.5) / buffer_width;
+    double jitterY = (sample.y - 0.5) / buffer_height;
+    
+    ray r(glm::dvec3(0, 0, 0), glm::dvec3(0, 0, 0), glm::dvec3(1, 1, 1),
+          ray::VISIBILITY);
+    scene->getCamera().rayThrough(x + jitterX, y + jitterY, r);
+    
+    double dummy;
+    pixelColor += traceRay(r, glm::dvec3(1.0, 1.0, 1.0), traceUI->getDepth(), dummy);
   }
+  
+  // Average the samples
+  pixelColor /= static_cast<double>(samplesPerPixel);
+  
+  return glm::clamp(pixelColor, 0.0, 1.0);
+}
+// Generate a sample from a GGX distribution with given roughness
+glm::dvec3 sampleGGX(const glm::dvec3& N, const glm::dvec3& V, double roughness) {
+  double r1 = static_cast<double>(rand()) / RAND_MAX;
+  double r2 = static_cast<double>(rand()) / RAND_MAX;
+  
+  // Compute half-vector
+  double alpha = roughness * roughness;
+  double phi = 2.0 * M_PI * r1;
+  
+  // Map from uniform to GGX distribution
+  double cosTheta = sqrt((1.0 - r2) / (1.0 + (alpha*alpha - 1.0) * r2));
+  double sinTheta = sqrt(1.0 - cosTheta * cosTheta);
+  
+  // Convert to Cartesian coordinates in tangent space
+  glm::dvec3 H;
+  H.x = sinTheta * cos(phi);
+  H.y = sinTheta * sin(phi);
+  H.z = cosTheta;
+  
+  // Create tangent space
+  glm::dvec3 up = abs(N.z) < 0.999 ? glm::dvec3(0, 0, 1) : glm::dvec3(1, 0, 0);
+  glm::dvec3 tangent = glm::normalize(glm::cross(up, N));
+  glm::dvec3 bitangent = glm::cross(N, tangent);
+  
+  // Convert from tangent space to world space
+  glm::dvec3 worldH = tangent * H.x + bitangent * H.y + N * H.z;
+  
+  // Reflect view direction around half-vector to get light direction
+  return glm::reflect(-V, worldH);
+}
 
-  // if (debugMode) {
-  //   cout << this->thresh << " " << thresh << endl;
-  // }
+// Compute GGX PDF for a given direction
+double ggxPDF(const glm::dvec3& N, const glm::dvec3& H, const glm::dvec3& V, double roughness) {
+  double alpha = roughness * roughness;
+  double NdotH = glm::max(glm::dot(N, H), 0.0);
+  double HdotV = glm::max(glm::dot(H, V), 0.0);
+  
+  // GGX distribution
+  double alpha2 = alpha * alpha;
+  double denom = NdotH * NdotH * (alpha2 - 1.0) + 1.0;
+  double D = alpha2 / (M_PI * denom * denom);
+  
+  // PDF = D * NdotH / (4 * HdotV)
+  return D * NdotH / (4.0 * HdotV);
+}
 
-  if (scene->intersect(r, i)) {
-    // YOUR CODE HERE
+glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int maxDepth, double &t) {
+  // Path tracing accumulator
+  glm::dvec3 L(0.0, 0.0, 0.0);    // Accumulated radiance
+  glm::dvec3 throughput(1.0, 1.0, 1.0); // Path throughput
+  ray currentRay = r;              // Current ray being traced
+  bool specularBounce = false;     // Track if last bounce was specular
 
-    // An intersection occurred!  We've got work to do. For now, this code gets
-    // the material for the surface that was intersected, and asks that material
-    // to provide a color for the ray.
+  // Iterative path tracing loop (replacing recursive calls)
+  for (int depth = 0; depth <= maxDepth; depth++) {
+    // Early termination if throughput is too low
+    if (glm::all(glm::lessThan(throughput, thresh)))
+      break;
 
-    // This is a great place to insert code for recursive ray tracing. Instead
-    // of just returning the result of shade(), add some more steps: add in the
-    // contributions from reflected and refracted rays.
+    // Trace the current ray segment
+    isect i;
+    if (!scene->intersect(currentRay, i)) {
+      // Ray hit nothing - environment contribution
+      if (depth == 0 || specularBounce) {
+        // Add environment contribution for camera rays or perfectly specular bounces
+        if (traceUI->cubeMap()) {
+          CubeMap* cubeMap = traceUI->getCubeMap();
+          if (cubeMap) {
+            L += throughput * cubeMap->getColor(currentRay);
+          }
+        } else {
+          // Add default environment lighting for rays that miss geometry
+          // This is critical - missing rays should contribute some light (sky/ambient)
+          L += throughput * glm::dvec3(0.15, 0.15, 0.25); // Add a subtle blue sky color
+        }
+      }
+      break; // End the path
+    }
 
-    const Material &m = i.getMaterial();
-    colorC = m.shade(scene.get(), r, i);
+    // Update intersection distance for the calling function
     t = i.getT();
 
-    if (depth > 0) {
-      // reflection
-      glm::dvec3 D = glm::normalize(r.getDirection());
-      glm::dvec3 N = glm::normalize(i.getN());
+    // Get the material at the intersection
+    const Material &material = i.getMaterial();
+    glm::dvec3 hitPoint = currentRay.at(i);
+    glm::dvec3 N = glm::normalize(i.getN());
+    glm::dvec3 D = glm::normalize(currentRay.getDirection());
+
+    // Handle normal orientation based on ray direction
+    bool entering = (glm::dot(D, N) < 0.0);
+    if (!entering) N = -N;
+
+    // Add emitted light for all bounces (crucial for path tracing)
+    glm::dvec3 emission = material.ke(i);
+    if (glm::dot(emission, emission) > 0.0) {
+      L += throughput * emission;
+    }
+
+    // Calculate material component weights for importance sampling
+    double krLength = glm::length(material.kr(i));
+    double ktLength = glm::length(material.kt(i));
+    double ksLength = glm::length(material.ks(i));
+    double kdLength = glm::length(material.kd(i));
+
+    // Compute probabilities for each component
+    double totalWeight = krLength + ktLength + ksLength + kdLength;
+    if (totalWeight <= 0.0) {
+      break; // No reflection properties, terminate path
+    }
+    
+    // Calculate sampling probabilities
+    double probReflect = krLength / totalWeight;
+    double probRefract = ktLength / totalWeight;
+    double probSpecular = ksLength / totalWeight;
+    double probDiffuse = kdLength / totalWeight;
+    
+    // Normalize to sum to 1
+    double sum = probReflect + probRefract + probSpecular + probDiffuse;
+    if (sum > 0.0) {
+      probReflect /= sum;
+      probRefract /= sum;
+      probSpecular /= sum;
+      probDiffuse /= sum;
+    } else {
+      // Default to diffuse if nothing else
+      probDiffuse = 1.0;
+      probReflect = probRefract = probSpecular = 0.0;
+    }
+
+    // Add direct lighting for non-specular surfaces (MIS)
+    if (kdLength > 0.0) {
+      // Sample lights (light sampling strategy)
+      const auto& lights = scene->getAllLights();
+      if (!lights.empty()) {
+        // Sample all lights for better convergence
+        double lightContrib = 2.0; // Adjust this multiplier if needed
+        for (const Light* light : lights) {
+          glm::dvec3 dirToLight = light->getDirection(hitPoint);
+          glm::dvec3 lightColor = light->getColor() * lightContrib;
+          double distAtten = light->distanceAttenuation(hitPoint);
+          
+          // Check visibility
+          ray shadowRay(hitPoint + N * RAY_EPSILON, dirToLight, glm::dvec3(1,1,1), ray::SHADOW);
+          glm::dvec3 shadowAttenuation = light->shadowAttenuation(shadowRay, hitPoint);
+          
+          if (glm::length(shadowAttenuation) > 0.0) {
+            // Calculate geometry term
+            double cosToLight = glm::max(0.0, glm::dot(N, dirToLight));
+            
+            // Calculate BRDF
+            glm::dvec3 brdf = material.kd(i) / M_PI;
+            
+            // Add direct lighting contribution
+            L += throughput * brdf * lightColor * cosToLight * distAtten * shadowAttenuation;
+          }
+        }
+      }
+    }
+    
+    // Randomly select which BRDF to sample based on material properties
+    double random = static_cast<double>(rand()) / RAND_MAX;
+    double accumulatedProb = 0.0;
+    
+    specularBounce = false;  // Reset specular flag
+
+    if (random < (accumulatedProb += probReflect) && material.Refl()) {
+      // Perfect specular reflection
       glm::dvec3 R = glm::normalize(glm::reflect(D, N));
-      glm::dvec3 hitPoint = r.at(i);
-      bool entering = (glm::dot(D, N) < 0.0);
+      currentRay = ray(hitPoint + N * RAY_EPSILON, R, currentRay.getAtten(), ray::REFLECTION);
+      throughput *= material.kr(i) / probReflect;
+      specularBounce = true;
+    }
+    else if (random < (accumulatedProb += probRefract) && material.Trans()) {
+      // Refraction with Fresnel effects
+      double n1 = 1.0;  // Air index of refraction
+      double n2 = material.index(i);
 
       if (!entering) {
-        N = -N;
-      }
-      glm::dvec3 offsetHitPoint = hitPoint + N * RAY_EPSILON;
-
-      // if (debugMode) {
-      //   cout << m.Refl() << endl;
-      //   cout << m.Trans() << endl;
-      //   cout << "hitPoint: " << hitPoint << endl;
-      //   cout << "D: " << D << endl;
-      //   cout << "N: " << N << endl;
-      //   cout << "R: " << R << endl;
-      // }
-
-      if (m.Refl()) {
-        ray reflectedRay(offsetHitPoint, R, r.getAtten(), ray::REFLECTION);
-        glm::dvec3 transmittance = glm::dvec3(1.0, 1.0, 1.0);
-        glm::dvec3 emittance = glm::dvec3(0.0, 0.0, 0.0);
-        if (!entering && m.Trans()) {
-          double d = glm::max(glm::distance(r.getPosition() + D * RAY_EPSILON, r.at(i.getT())), 0.0);
-          transmittance = glm::pow(m.kt(i), glm::dvec3(d));
-          if (m.ke(i) != glm::dvec3(0.0, 0.0, 0.0)) {
-            for (int j = 0; j < 3; j++) {
-              if (m.kt(i)[j] < 1.0) {
-                emittance[j] = m.ke(i)[j] * (glm::pow(m.kt(i)[j], d * d * d) - 1.0) / log(m.kt(i)[j]);
-              } else {
-                emittance[j] = m.ke(i)[j] * d;
-              }
-            }
-          }
-        }
-        glm::dvec3 reflThresh = thresh * transmittance * m.kr(i);
-        colorC += emittance + transmittance * m.kr(i) * traceRay(reflectedRay, reflThresh, depth - 1, t);
+        std::swap(n1, n2);
       }
 
-      // refraction
-      if (m.Trans()) {
-        double n1 = 1.0;
-        double n2 = m.index(i);
+      double eta = n1 / n2;
+      glm::dvec3 T = glm::normalize(glm::refract(D, N, eta));
 
-        // If we're inside the refracting material
+      if (glm::length(T) > 0.0) {
+        // Normal refraction case
+        currentRay = ray(hitPoint - N * RAY_EPSILON, T, currentRay.getAtten(), ray::REFRACTION);
+
+        // Calculate transmittance (Beer's law) if we're exiting a medium
+        glm::dvec3 transmittance(1.0);
         if (!entering) {
-          swap(n1, n2);
+          double d = glm::distance(currentRay.getPosition(), hitPoint);
+          // Use absorption coefficient to limit extreme darkening
+          glm::dvec3 absorb = glm::min(material.kt(i), glm::dvec3(5.0));
+          transmittance = glm::exp(-absorb * d);
         }
 
-        double eta = n1 / n2;
-        glm::dvec3 T = glm::normalize(glm::refract(D, N, eta));
-
-        // if (debugMode) {
-        //   cout << "n1: " << n1 << endl;
-        //   cout << "n2: " << n2 << endl;
-        //   cout << "eta: " << eta << endl;
-        //   cout << "T: " << T << endl;
-        //   cout << endl;
-        // }
-
-        if (glm::length(T) > 0.0) {
-          // Normal refraction
-          ray refractedRay = ray(hitPoint + D * RAY_EPSILON, T, r.getAtten(), ray::REFRACTION);
-          glm::dvec3 transmittance = glm::dvec3(1.0, 1.0, 1.0);
-          glm::dvec3 emittance = glm::dvec3(0.0, 0.0, 0.0);
-          if (!entering) {
-            double d = glm::max(glm::distance(r.getPosition() + D * RAY_EPSILON, r.at(i.getT())), 0.0);
-            transmittance = glm::pow(m.kt(i), glm::dvec3(d)); // Attenuate on exit
-            if (m.ke(i) != glm::dvec3(0.0, 0.0, 0.0)) {
-              for (int j = 0; j < 3; j++) {
-                if (m.kt(i)[j] < 1.0) {
-                  emittance[j] = m.ke(i)[j] * (glm::pow(m.kt(i)[j], d * d * d) - 1.0) / log(m.kt(i)[j]);
-                } else {
-                  emittance[j] = m.ke(i)[j] * d;
-                }
-              }
-            }
-            // if (debugMode) {
-            //   cout << d << endl;
-            //   cout << transmittance << endl;
-            // }
-          }
-          // if (debugMode) {
-          //   cout << "emittance: " << emittance << endl;
-          // }
-          glm::dvec3 refrThresh = thresh * transmittance;
-          colorC += emittance + transmittance * traceRay(refractedRay, refrThresh, depth - 1, t);
-        } else {
-          // Total Internal Reflection
-          // Use reflection only
-          ray reflectedRay(offsetHitPoint, R, r.getAtten(), ray::REFLECTION);
-          glm::dvec3 transmittance = glm::dvec3(1.0, 1.0, 1.0);
-          glm::dvec3 emittance = glm::dvec3(0.0, 0.0, 0.0);
-
-          // Calculate attenuation if inside the medium
-          if (!entering) {
-            double d = glm::max(glm::distance(r.getPosition() + D * RAY_EPSILON, r.at(i.getT())), 0.0);
-            transmittance = glm::pow(m.kt(i), glm::dvec3(d));
-        
-            if (m.ke(i) != glm::dvec3(0.0, 0.0, 0.0)) {
-              for (int j = 0; j < 3; j++) {
-                if (m.kt(i)[j] < 1.0) {
-                  emittance[j] = m.ke(i)[j] * (glm::pow(m.kt(i)[j], d * d * d) - 1.0) / log(m.kt(i)[j]);
-                } else {
-                  emittance[j] = m.ke(i)[j] * d;
-                }
-              }
-            }
-          }
-          colorC += emittance + transmittance * traceRay(reflectedRay, thresh * transmittance, depth - 1, t);
-        }
+        throughput *= transmittance * material.kt(i) / probRefract;
+        specularBounce = true;
+      }
+      else {
+        // Total internal reflection case
+        glm::dvec3 R = glm::normalize(glm::reflect(D, N));
+        currentRay = ray(hitPoint + N * RAY_EPSILON, R, currentRay.getAtten(), ray::REFLECTION);
+        throughput *= material.kr(i) / (probReflect > 0.0 ? probReflect : 1.0);
+        specularBounce = true;
       }
     }
-  } else {
-    // No intersection. This ray travels to infinity, so we color
-    // it according to the background color, which in this (simple)
-    // case is just black.
-    //
-    // FIXME: Add CubeMap support here.
-    // TIPS: CubeMap object can be fetched from
-    // traceUI->getCubeMap();
-    //       Check traceUI->cubeMap() to see if cubeMap is loaded
-    //       and enabled.
-
-    // No intersection - check for cube map
-    if (traceUI->cubeMap()) {
-      // Get the cube map and sample it using the ray
-      CubeMap* cubeMap = traceUI->getCubeMap();
-      if (cubeMap) {
-        colorC = cubeMap->getColor(r);
+    else if (random < (accumulatedProb += probSpecular) && ksLength > 0.0) {
+      // Glossy specular reflection
+      double roughness = 1.0 - glm::pow(material.shininess(i) / 128.0, 0.5);
+      roughness = glm::clamp(roughness, 0.01, 0.99);
+      
+      glm::dvec3 V = -D;  // View direction
+      glm::dvec3 L = sampleGGX(N, V, roughness);
+      
+      if (glm::dot(L, N) > 0.0) {
+        currentRay = ray(hitPoint + N * RAY_EPSILON, L, currentRay.getAtten(), ray::REFLECTION);
+        double NdotL = glm::max(glm::dot(N, L), 0.0);
+        throughput *= material.ks(i) * NdotL / probSpecular;
+        specularBounce = true;
       } else {
-        colorC = glm::dvec3(0.0, 0.0, 0.0);
+        break; // Invalid direction
       }
-    } else {
-      // No cube map - use black background
-      colorC = glm::dvec3(0.0, 0.0, 0.0);
+    }
+    else {
+      // Diffuse reflection
+      // Create orthonormal basis around normal
+      glm::dvec3 w = N;
+      glm::dvec3 u = glm::normalize(glm::cross((fabs(w.x) > 0.1 ? glm::dvec3(0, 1, 0) : glm::dvec3(1, 0, 0)), w));
+      glm::dvec3 v = glm::cross(w, u);
+      
+      // Cosine-weighted sample on hemisphere
+      double r1 = static_cast<double>(rand()) / RAND_MAX;
+      double r2 = static_cast<double>(rand()) / RAND_MAX;
+      double phi = 2.0 * M_PI * r1;
+      double theta = sqrt(r2);
+      double x = theta * cos(phi);
+      double y = theta * sin(phi);
+      double z = sqrt(1.0 - theta * theta);
+      
+      // Convert to world space
+      glm::dvec3 sampledDir = glm::normalize(u * x + v * y + w * z);
+      currentRay = ray(hitPoint + N * RAY_EPSILON, sampledDir, currentRay.getAtten(), ray::VISIBILITY);
+      
+      throughput *= material.kd(i) / probDiffuse;
+    }
+
+    // Russian roulette termination with increased survival probability
+    if (depth > 2) {
+      double luminance = 0.3 * throughput.r + 0.6 * throughput.g + 0.1 * throughput.b;
+      double continueProbability = std::min(0.98, luminance);
+      
+      // Ensure some minimum chance to continue for dark paths
+      continueProbability = std::max(continueProbability, 0.2);
+      
+      if (static_cast<double>(rand()) / RAND_MAX > continueProbability) {
+        break;
+      }
+      throughput /= continueProbability;
     }
   }
-#if VERBOSE
-  std::cerr << "== depth: " << depth + 1 << " done, returning: " << colorC
-            << std::endl;
-#endif
-  // if (debugMode) {
-  //   cout << "colorC: " << colorC << endl; 
-  // }
-  return colorC;
-}
 
+  return glm::clamp(L, 0.0, 1.0);
+}
 RayTracer::RayTracer()
     : scene(nullptr), buffer(0), thresh(0), buffer_width(0), buffer_height(0),
       m_bBufferReady(false) {
@@ -347,6 +423,10 @@ void RayTracer::traceSetup(int w, int h) {
   if (newBufferSize != buffer.size()) {
     bufferSize = newBufferSize;
     buffer.resize(bufferSize);
+    
+    // Reset sample count for each pixel when buffer size changes
+    samplesPerPixel.resize(w * h);
+    std::fill(samplesPerPixel.begin(), samplesPerPixel.end(), 0);
   }
   buffer_width = w;
   buffer_height = h;
@@ -356,7 +436,6 @@ void RayTracer::traceSetup(int w, int h) {
   /*
    * Sync with TraceUI
    */
-
   threads = traceUI->getThreads();
   block_size = traceUI->getBlockSize();
   thresh = traceUI->getThreshold();
@@ -366,11 +445,58 @@ void RayTracer::traceSetup(int w, int h) {
   bvhMaxDepth = traceUI->getMaxDepth();
   bvhTargetLeafSize = traceUI->getLeafSize();
 
+  generateStratifiedSamples(16);  // 4x4=16 samples per sequence
+
   if (traceUI->bvhSwitch()) {
     scene->buildBVH(bvhMaxDepth, bvhTargetLeafSize);
   } else {
     scene->clearBVH();
   }
+}
+
+glm::dvec3 RayTracer::tracePixel(int i, int j) {
+  glm::dvec3 col(0, 0, 0);
+
+  if (!sceneLoaded())
+    return col;
+
+  double x = double(i) / double(buffer_width);
+  double y = double(j) / double(buffer_height);
+
+  // Get pixel index
+  int pixelIndex = i + j * buffer_width;
+  
+  // Get existing color for progressive rendering
+  unsigned char *pixel = buffer.data() + pixelIndex * 3;
+  glm::dvec3 existingColor(pixel[0] / 255.0, pixel[1] / 255.0, pixel[2] / 255.0);
+  
+  // Compute the new sample
+  col = trace(x, y);
+  
+  // For progressive rendering, blend with existing color
+  int currentSamples = samplesPerPixel[pixelIndex];
+  
+  if (currentSamples > 0) {
+    // Blend new sample with existing average
+    glm::dvec3 blendedColor = (existingColor * static_cast<double>(currentSamples) + col) / 
+                              static_cast<double>(currentSamples + 1);
+    
+    pixel[0] = (int)(255.0 * blendedColor[0]);
+    pixel[1] = (int)(255.0 * blendedColor[1]);
+    pixel[2] = (int)(255.0 * blendedColor[2]);
+    
+    col = blendedColor;
+  } else {
+    // First sample
+    pixel[0] = (int)(255.0 * col[0]);
+    pixel[1] = (int)(255.0 * col[1]);
+    pixel[2] = (int)(255.0 * col[2]);
+  }
+  
+  // Increment sample count for this pixel
+  samplesPerPixel[pixelIndex]++;
+  
+  return col;
 }
 
 void RayTracer::workerThread(int threadId) {
@@ -440,81 +566,7 @@ void RayTracer::traceImage(int w, int h) {
 }
 
 int RayTracer::aaImage() {
-  if (samples <= 1) {
-      return 0; // Don't need AA
-  }
-
-  // RNG
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  std::uniform_real_distribution<double> dist(0.0, 1.0);
-
-  for (int i = 0; i < buffer_width; i++) {
-      for (int j = 0; j < buffer_height; j++) {
-          glm::dvec3 originalColor = getPixel(i, j);
-          bool needsAA = false;
-          
-          // Check if this pixel needs AA by comparing with neighbors
-          for (int di = -1; di <= 1 && !needsAA; di++) {
-              for (int dj = -1; dj <= 1; dj++) {
-                  if (di == 0 && dj == 0) continue;
-
-                  int ni = i + di;
-                  int nj = j + dj;
-                  
-                  if (ni >= 0 && ni < buffer_width && nj >= 0 && nj < buffer_height) {
-                      glm::dvec3 neighborColor = getPixel(ni, nj);
-                      
-                      if (glm::length(originalColor - neighborColor) > aaThresh) {
-                          needsAA = true;
-                          break;
-                      }
-                  }
-              }
-          }
-
-          if (needsAA) {
-              glm::dvec3 accumulatedColor(0.0);
-              
-              // Calculate grid dimensions for jittered sampling
-              int sqrtSamples = static_cast<int>(ceil(sqrt(samples)));
-              int actualSamples = 0;
-              
-              for (int si = 0; si < sqrtSamples; si++) {
-                  for (int sj = 0; sj < sqrtSamples; sj++) {
-                      // Stop if reached sample limit
-                      if (actualSamples >= samples) break;
-                      actualSamples++;
-                      
-                      // Size of each stratum
-                      double stratumWidth = 1.0 / sqrtSamples;
-                      double stratumHeight = 1.0 / sqrtSamples;
-                      
-                      // Calculate base position within the stratum
-                      double baseX = static_cast<double>(si) * stratumWidth;
-                      double baseY = static_cast<double>(sj) * stratumHeight;
-                      
-                      // Add random jitter within the stratum
-                      double jitterX = dist(gen) * stratumWidth;
-                      double jitterY = dist(gen) * stratumHeight;
-                      
-                      // Final sample position within pixel
-                      double sampleX = baseX + jitterX;
-                      double sampleY = baseY + jitterY;
-                      
-                      // Convert to image coordinates
-                      double x = (i + sampleX) / static_cast<double>(buffer_width);
-                      double y = (j + sampleY) / static_cast<double>(buffer_height);
-                      
-                      accumulatedColor += trace(x, y);
-                  }
-              }
-              glm::dvec3 finalColor = accumulatedColor / static_cast<double>(actualSamples);
-              setPixel(i, j, finalColor);
-          }
-      }
-  }
-  return 1;
+  return 0;
 }
 
 bool RayTracer::checkRender() {
@@ -551,4 +603,41 @@ void RayTracer::setPixel(int i, int j, glm::dvec3 color) {
   pixel[0] = (int)(255.0 * color[0]);
   pixel[1] = (int)(255.0 * color[1]);
   pixel[2] = (int)(255.0 * color[2]);
+}
+
+// Add these implementation methods
+
+void RayTracer::generateStratifiedSamples(int samplesPerDimension) {
+  int totalSamples = samplesPerDimension * samplesPerDimension;
+  stratifiedSamples.resize(totalSamples);
+  
+  // Generate stratified samples
+  for (int y = 0; y < samplesPerDimension; ++y) {
+    for (int x = 0; x < samplesPerDimension; ++x) {
+      double jitterX = static_cast<double>(rand()) / RAND_MAX;
+      double jitterY = static_cast<double>(rand()) / RAND_MAX;
+      
+      stratifiedSamples[y * samplesPerDimension + x] = glm::dvec2(
+        (x + jitterX) / samplesPerDimension,
+        (y + jitterY) / samplesPerDimension
+      );
+    }
+  }
+  
+  // Shuffle the samples for better distribution
+  for (int i = totalSamples - 1; i > 0; --i) {
+    int j = rand() % (i + 1);
+    std::swap(stratifiedSamples[i], stratifiedSamples[j]);
+  }
+  
+  currentSampleIndex = 0;
+}
+
+glm::dvec2 RayTracer::getNextSample2D() {
+  // If we've used all samples, regenerate
+  if (currentSampleIndex >= stratifiedSamples.size()) {
+    generateStratifiedSamples(static_cast<int>(sqrt(stratifiedSamples.size())));
+  }
+  
+  return stratifiedSamples[currentSampleIndex++];
 }

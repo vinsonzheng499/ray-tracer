@@ -71,6 +71,15 @@ private:
   int block_size;
   double aaThresh;
   int samples;
+  std::vector<int> samplesPerPixel;
+
+  // For low-discrepancy sampling
+  std::vector<glm::dvec2> stratifiedSamples;
+  int currentSampleIndex = 0;
+  
+  // Helper functions
+  void generateStratifiedSamples(int samplesPerDimension);
+  glm::dvec2 getNextSample2D();
 
   std::vector<std::thread> workerThreads;
   std::vector<bool> threadDone;
