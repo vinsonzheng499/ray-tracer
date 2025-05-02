@@ -16,3 +16,6 @@ cp -r fltk@1.3 fltk
 
 ## Extra Credit  
 We submitted the online course instructor survey
+
+## Credit
+Cornell Box and Pokeball were taken and modified from this repository: https://github.com/fabianishere/traceur/tree/master/assets
