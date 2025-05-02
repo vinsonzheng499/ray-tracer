@@ -338,11 +338,60 @@ if (material.kd(i).length() > 1e-6 || material.ks(i).length() > 1e-6) {
               if (numLightSamples > 0) {
                   L += throughput * lightContribution / static_cast<double>(numLightSamples);
               }
-          } else {
-              // Handle point and directional lights as before
-              // (Your existing code for point/directional lights)
+            } else {
+              // Handle point and directional lights with NEE
               glm::dvec3 dirToLight = light->getDirection(hitPoint);
-              // ... rest of your existing point/directional light code
+              double distToLight = std::numeric_limits<double>::infinity();
+              
+              // For PointLight, get the distance for attenuation 
+              const PointLight* pointLight = dynamic_cast<const PointLight*>(light);
+              if (pointLight) {
+                  distToLight = glm::distance(pointLight->getPosition(), hitPoint);
+              }
+              
+              // Check visibility with shadow ray
+              ray shadowRay(hitPoint + N * RAY_EPSILON, dirToLight, glm::dvec3(1.0), ray::SHADOW);
+              isect shadowIsect;
+              bool visible = true;
+              
+              if (scene->intersect(shadowRay, shadowIsect)) {
+                  if (shadowIsect.getT() < distToLight - RAY_EPSILON) {
+                      visible = false;
+                      
+                      // Handle transparency in shadow rays
+                      if (shadowIsect.getMaterial().Trans()) {
+                          glm::dvec3 shadowAtten = light->shadowAttenuation(shadowRay, hitPoint);
+                          if (glm::length(shadowAtten) >= 0.01) { // Not completely blocked
+                              visible = true;
+                          }
+                      }
+                  }
+              }
+              
+              if (visible) {
+                  double NdotL = glm::max(0.0, glm::dot(N, dirToLight));
+                  if (NdotL > 0.0) {
+                      // Calculate BRDF for both diffuse and specular components
+                      glm::dvec3 brdf_total(0.0);
+                      
+                      // Diffuse component (Lambertian)
+                      if (material.kd(i).length() > 1e-6) {
+                          brdf_total += material.kd(i) / M_PI;
+                      }
+                      
+                      // Specular component (GGX)
+                      if (material.ks(i).length() > 1e-6) {
+                          double roughness = sqrt(2.0 / (2.0 + material.shininess(i)));
+                          roughness = glm::clamp(roughness, 0.01, 0.99);
+                          double spec_pdf; // Not used here but needed for function
+                          brdf_total += evaluateGGXBRDF(N, V, dirToLight, material.ks(i), 
+                                                    roughness, spec_pdf);
+                      }
+                      
+                      double distAtten = light->distanceAttenuation(hitPoint);
+                      L += throughput * brdf_total * light->getColor() * NdotL * distAtten;
+                  }
+              }
           }
       }
   }
