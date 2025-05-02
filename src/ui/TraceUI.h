@@ -97,7 +97,7 @@ protected:
   int m_nDepth = 0;         // Max depth of recursion
   int m_nThreshold = 0;     // Threshold for interpolation within block
   int m_nBlockSize = 4;     // Blocksize (square, even, power of 2 preferred)
-  int m_nSuperSamples = 3;  // Supersampling rate (1-d) for antialiasing
+  int m_nSuperSamples = 256;  // Supersampling rate (1-d) for antialiasing
   int m_nAaThreshold = 100; // Pixel neighborhood difference for supersampling
   int m_nTreeDepth = 15;    // maximum bvhTree depth
   int m_nLeafSize = 10;     // target number of objects per leaf
@@ -109,7 +109,7 @@ protected:
   // for individual rays.  Disabled by default for efficiency
   // reasons.
   bool m_displayDebuggingInfo = false;
-  bool m_antiAlias = false;    // Is antialiasing on?
+  bool m_antiAlias = true;    // Is antialiasing on? UPDATE: now for pathtracing
   bool m_bvhTree = true;        // use bvh-tree?
   bool m_shadows = true;       // compute shadows?
   bool m_smoothshade = true;   // turn on/off smoothshading?

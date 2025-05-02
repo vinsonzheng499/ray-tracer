@@ -213,10 +213,8 @@ void GraphicalUI::cb_aaCheckButton(Fl_Widget *o, void *) {
   pUI->m_antiAlias = (((Fl_Check_Button *)o)->value() == 1);
   if (pUI->m_antiAlias) {
     pUI->m_aaSamplesSlider->activate();
-    pUI->m_aaThreshSlider->activate();
   } else {
     pUI->m_aaSamplesSlider->deactivate();
-    pUI->m_aaThreshSlider->deactivate();
   }
 }
 
@@ -551,14 +549,14 @@ GraphicalUI::GraphicalUI() : refreshInterval(10) {
 
   // install aasamples slider
   m_aaSamplesSlider =
-      new Fl_Value_Slider(95, 205, 180, 20, "Pixel Samples\non Each Direction");
+      new Fl_Value_Slider(95, 220, 180, 20, "Samples Per Pixel");
   m_aaSamplesSlider->user_data((void *)(this)); // record self to be used by
                                                 // static callback functions
   m_aaSamplesSlider->type(FL_HOR_NICE_SLIDER);
   m_aaSamplesSlider->labelfont(FL_COURIER);
   m_aaSamplesSlider->labelsize(12);
   m_aaSamplesSlider->minimum(1);
-  m_aaSamplesSlider->maximum(8);
+  m_aaSamplesSlider->maximum(1024);
   m_aaSamplesSlider->step(1);
   m_aaSamplesSlider->value(m_nSuperSamples);
   m_aaSamplesSlider->align(FL_ALIGN_RIGHT);
@@ -566,25 +564,8 @@ GraphicalUI::GraphicalUI() : refreshInterval(10) {
   if (!m_antiAlias)
     m_aaSamplesSlider->deactivate();
 
-  // install aathreshold slider
-  m_aaThreshSlider =
-      new Fl_Value_Slider(95, 237, 180, 20, "Supersample\nThreshold (x 0.001)");
-  m_aaThreshSlider->user_data((void *)(this)); // record self to be used by
-                                               // static callback functions
-  m_aaThreshSlider->type(FL_HOR_NICE_SLIDER);
-  m_aaThreshSlider->labelfont(FL_COURIER);
-  m_aaThreshSlider->labelsize(12);
-  m_aaThreshSlider->minimum(0);
-  m_aaThreshSlider->maximum(1000);
-  m_aaThreshSlider->step(1);
-  m_aaThreshSlider->value(m_nAaThreshold);
-  m_aaThreshSlider->align(FL_ALIGN_RIGHT);
-  m_aaThreshSlider->callback(cb_aaThresholdSlides);
-  if (!m_antiAlias)
-    m_aaThreshSlider->deactivate();
-
   // set up antialias checkbox
-  m_aaCheckButton = new Fl_Check_Button(10, 221, 75, 20, "Antialias");
+  m_aaCheckButton = new Fl_Check_Button(10, 221, 75, 20, "Pathtrace");
   m_aaCheckButton->user_data((void *)(this));
   m_aaCheckButton->callback(cb_aaCheckButton);
   m_aaCheckButton->value(m_antiAlias);

@@ -43,7 +43,7 @@ glm::dvec3 RayTracer::trace(double x, double y) {
   }
   
   // Get the actual sample count from UI
-  int samplesPerPixel = 256;
+  int samplesPerPixel = traceUI->getSuperSamples();
   if (samplesPerPixel <= 0) samplesPerPixel = 1; // Ensure at least one sample
   
   glm::dvec3 pixelColor(0.0, 0.0, 0.0);
@@ -445,7 +445,8 @@ void RayTracer::traceSetup(int w, int h) {
   bvhMaxDepth = traceUI->getMaxDepth();
   bvhTargetLeafSize = traceUI->getLeafSize();
 
-  generateStratifiedSamples(16);  // 4x4=16 samples per sequence
+  int sampleDimension = std::max(1, static_cast<int>(std::sqrt(samples)));
+  generateStratifiedSamples(sampleDimension);
 
   if (traceUI->bvhSwitch()) {
     scene->buildBVH(bvhMaxDepth, bvhTargetLeafSize);
