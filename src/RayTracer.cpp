@@ -190,7 +190,9 @@ glm::dvec3 RayTracer::traceRay(ray &r, const glm::dvec3 &thresh, int maxDepth, d
             if (cubeMap) {
               L += throughput * cubeMap->getColor(currentRay);
             }
-          }
+          } else if (depth == 0 || specularBounce) { // Only add env for first bounce or after specular
+            L += throughput * glm::dvec3(0.15, 0.15, 0.25); // Subtle blue sky
+        }
           break; // End the path
       }
 
