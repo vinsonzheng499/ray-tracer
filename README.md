@@ -27,5 +27,5 @@ The executable is called ray and can be ran with
 ```
 The supersampling can be adjusted with a slider on the UI (it defaults to 256).
 
-Timelapse: 
-![til](screenshots/Path Tracer Demo.gif)
+Timelapse:  
+![Path Tracer Demo](screenshots/Path%20Tracer%20Demo.gif)
